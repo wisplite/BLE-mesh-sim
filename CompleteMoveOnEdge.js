@@ -29,6 +29,8 @@ class CompleteNodeOnEdgeEngine {
         this.timer = null;
         this.lastTime = 0;
         this.targetInterval = this.time_delay;
+        this.speedMultiplier = 1;
+        this.timeAccumulator = 0;
         this._movementInitialized = false;
 
         // Keep linksByEdges up-to-date for dynamic graph changes
@@ -85,6 +87,20 @@ class CompleteNodeOnEdgeEngine {
 
     setArrivalCallback(callback) {
         this.onArrival = callback;
+    }
+
+    /**
+     * Adjust the simulation speed multiplier.
+     * A value > 1 speeds up the simulation, 0 < value < 1 slows it down.
+     * @param {number} multiplier
+     */
+    setSimulationSpeed(multiplier) {
+        if (!isFinite(multiplier) || multiplier <= 0) {
+            return;
+        }
+        this.speedMultiplier = multiplier;
+        const minInterval = 1; // ms
+        this.targetInterval = Math.max(minInterval, this.time_delay / this.speedMultiplier);
     }
 
     /**
@@ -178,11 +194,22 @@ class CompleteNodeOnEdgeEngine {
     }
 
     loop = (timestamp) => {
-        const elapsed = timestamp - this.lastTime;
-        if (elapsed >= this.targetInterval) {
-          this.lastTime = timestamp;
-          this.eventProcess();
+        if (this.lastTime === 0) {
+            this.lastTime = timestamp;
         }
+        const delta = timestamp - this.lastTime;
+        this.lastTime = timestamp;
+
+        this.timeAccumulator += delta * this.speedMultiplier;
+
+        let steps = 0;
+        const maxStepsPerFrame = 50;
+        while (this.timeAccumulator >= this.time_delay && steps < maxStepsPerFrame) {
+            this.eventProcess();
+            this.timeAccumulator -= this.time_delay;
+            steps++;
+        }
+
         this.timer = requestAnimationFrame(this.loop);
     };
 
@@ -190,18 +217,18 @@ class CompleteNodeOnEdgeEngine {
      * Processes the movement events and updates the nodes on edges accordingly.
      */
     eventProcess() {
-        var ratio = this.ratio_inc;
+        var ratio = this.ratio_inc * this.speedMultiplier;
 
         if (ratio < 0) {
             this.moveDot(ratio, this.currentTime);
-            this.currentTime = this.currentTime + this.time_delay * Math.sign(ratio);
+            this.currentTime = this.currentTime + this.time_delay * Math.sign(this.ratio_inc) * this.speedMultiplier;
             this.replayManager(this.currentTime, true);
 
             this.maxTime = Math.max(this.maxTime, this.currentTime);
 
         } else {
             this.moveDot(ratio, this.currentTime);
-            this.currentTime = this.currentTime + this.time_delay * Math.sign(ratio);
+            this.currentTime = this.currentTime + this.time_delay * Math.sign(this.ratio_inc) * this.speedMultiplier;
             this.replayManager(this.currentTime, false);
 
             this.maxTime = Math.max(this.maxTime, this.currentTime);

@@ -461,6 +461,14 @@ document.getElementById('updateInterval').addEventListener('change', function() 
     UPDATE_INTERVAL = parseInt(this.value);
 });
 
+document.getElementById('simSpeed').addEventListener('change', function() {
+    const speed = parseFloat(this.value);
+    if (!isFinite(speed) || speed <= 0) {
+        return;
+    }
+    onEdgeEngine.setSimulationSpeed(speed);
+});
+
 document.getElementById('connectionDistance').addEventListener('change', function() {
     CONNECTION_DISTANCE = parseInt(this.value);
 });
@@ -493,19 +501,24 @@ document.getElementById('createRandomGraphConfirm').addEventListener('click', fu
             physics: true,
         },
     });
-    for (let i = 0; i < nodeCount; i++) {
+    let nodeCounter = 0;
+    const interval = setInterval(() => {
         const nodeId = generateRealisticLabel();
         nodes.add({id: nodeId, label: nodeId, x: Math.random() * 100, y: Math.random() * 100});
         nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'packetCache': []};
-    }
-
-    setTimeout(() => {
-        network.setOptions({
-            nodes: {
-                shape: 'box',
-                physics: false,
-            }
-        });
-    }, 2000);
+        nodeCounter++;
+        if (nodeCounter >= nodeCount) {
+            console.log('Node count reached');
+            clearInterval(interval);
+            setTimeout(() => {
+                network.setOptions({
+                    nodes: {
+                        shape: 'box',
+                        physics: false,
+                    }
+                });
+            }, 2000);
+        }
+    }, 10);
     document.getElementById('randomGraphModal').style.display = 'none';
 });
