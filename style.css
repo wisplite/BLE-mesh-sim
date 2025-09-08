@@ -29,6 +29,10 @@
     margin: 0 auto;
     border: 1px solid #000;
     padding: 5px;
+    display: flex;
+    flex-direction: column;
+    justify-content: start;
+    align-items: start;
 }
 
 .controlButton {

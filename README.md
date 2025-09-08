@@ -12,7 +12,7 @@ You can:
 
 When sending packets, the colors of each node will change to reflect the TTL of the packet. The more green a node is, the closer it was to the origin of the packet, the more red a node is, the further it is from the origin. Nodes that were unable to receive the packet will turn white (this is often due to low TTL on large networks).
 
-I have also found that this simulation can vary wildly in performance depending on the machine it's running on. Make sure your browser supports GPU acceleration, or else this will run very poorly with large networks.
+I have also found that this simulation can vary wildly in performance depending on the machine and browser it's running on. Make sure your browser supports GPU acceleration, or else this will run very poorly with large networks. I have personally found that Chrome works the best for this by a huge margin, as much as I love Firefox.
 
 You should be able to run this simulation by opening the `index.html` file in your browser, there's no fancy stack or anything, just pure HTML, CSS, and JavaScript.
 

@@ -100,16 +100,21 @@ var onEdgeEngine = new CompleteNodeOnEdgeEngine(network, nodes, dotNodes, edges,
 onEdgeEngine.createEdgesTable();
 onEdgeEngine.initMovement();
 onEdgeEngine.setArrivalCallback(({ from, to, dot }) => {
+    var ttl = parseInt(dot.id.split('-')[2]); 
+    if (document.getElementById('showTTL').checked) {
+        edges.update({id: `${from}->${to}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1)}});
+    } else {
+        edges.update({id: `${from}->${to}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
+    }
     if (nodeTable[to].packetCache.includes(dot.id.split('-')[0])) {
         return;
     }
     // update color of receiving node for visualization
     nodeTable[to].packetCache.push(dot.id.split('-')[0]);
     var packetId = dot.id.split('-')[0];
-    var ttl = parseInt(dot.id.split('-')[2]); 
     ttl--;
     if (document.getElementById('showTTL').checked) {
-        nodes.update({id: to, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
+        nodes.update({id: to, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});        
     } else {
         nodes.update({id: to, color: {background: '#97c2fc'}});
     }
@@ -127,6 +132,9 @@ onEdgeEngine.setArrivalCallback(({ from, to, dot }) => {
                 shape: dot.shape,
                 size: dot.size,
                 color: dot.color,
+                font: {
+                    color: document.getElementById('darkMode').checked ? '#e0e0e0' : '#000'
+                }
             };
             onEdgeEngine.createDotNode(movingNode, to, neighbor);
         }
@@ -155,6 +163,7 @@ const markNeighborsAsFailed = (nodeId, from, packetId, visited = new Set()) => {
             continue;
         }
         nodes.update({id: neighbor, color: {background: 'white'}});
+        edges.update({id: `${nodeId}->${neighbor}`, color: {color: 'white', highlight: '#97c2fc'}});
         markNeighborsAsFailed(neighbor, nodeId, packetId, visited);
     }
 }
@@ -465,6 +474,9 @@ document.getElementById('sendPacket').addEventListener('click', function() {
                 background: 'white',
                 border: 'black'
             },
+            font: {
+                color: document.getElementById('darkMode').checked ? '#e0e0e0' : '#000'
+            }
         };
         onEdgeEngine.createDotNode(movingNode, selectedNode, connection);
         nodeTable[selectedNode].packetCache.push(packetId);
@@ -475,6 +487,10 @@ document.getElementById('sendPacket').addEventListener('click', function() {
 document.getElementById('resetTTLColors').addEventListener('click', function() {
     for (let node of nodes.get()) {
         nodes.update({id: node.id, color: {background: '#97c2fc'}});
+    }
+
+    for (let edge of edges.get()) {
+        edges.update({id: edge.id, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
     }
 });
 
@@ -544,3 +560,19 @@ document.getElementById('createRandomGraphConfirm').addEventListener('click', fu
     }, 10);
     document.getElementById('randomGraphModal').style.display = 'none';
 });
+
+document.getElementById('darkMode').addEventListener('change', function() {
+    if (this.checked) {
+        document.getElementById('styleSheet').href = 'style-dark.css';
+    } else {
+        document.getElementById('styleSheet').href = 'style.css';
+    }
+});
+
+window.onload = function() {
+    if (document.getElementById('darkMode').checked) {
+        document.getElementById('styleSheet').href = 'style-dark.css';
+    } else {
+        document.getElementById('styleSheet').href = 'style.css';
+    }
+}

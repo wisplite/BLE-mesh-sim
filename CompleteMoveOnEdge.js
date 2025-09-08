@@ -402,6 +402,7 @@ class CompleteNodeOnEdgeEngine {
             ratio: init_ratio,
             reversed: path[1],
             fixed: true,
+            font: node.font,
         };
 
         var edge = this.network.body.edges[newDotNode.edge];
