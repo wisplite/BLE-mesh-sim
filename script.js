@@ -562,15 +562,19 @@ document.getElementById('createRandomGraphConfirm').addEventListener('click', fu
 document.getElementById('darkMode').addEventListener('change', function() {
     if (this.checked) {
         document.getElementById('styleSheet').href = 'style-dark.css';
+        localStorage.setItem('darkMode', 'true');
     } else {
         document.getElementById('styleSheet').href = 'style.css';
+        localStorage.setItem('darkMode', 'false');
     }
 });
 
 window.onload = function() {
-    if (document.getElementById('darkMode').checked) {
+    if (localStorage.getItem('darkMode') === 'true') {
+        document.getElementById('darkMode').checked = true;
         document.getElementById('styleSheet').href = 'style-dark.css';
     } else {
+        document.getElementById('darkMode').checked = false;
         document.getElementById('styleSheet').href = 'style.css';
     }
 }
