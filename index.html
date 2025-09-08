@@ -12,7 +12,26 @@
     <body>
         <div id="rowFlex" style="display: flex; flex-direction: row; align-items: start; justify-content: center; width: 100%; height: 100%;">
             <div id="propertyViewer">
-
+                <div id="propertyViewerHeader">Simulation Properties</div>
+                <hr/>
+                <details id="simpleSettings">
+                    <summary>Simple Settings</summary>
+                    <div id="simpleSettingsContent">
+                        <label for="ttl">TTL</label>
+                        <input type="number" id="ttl" value="5" autocomplete="off">
+                        <label for="dropPenalty">Drop Penalty</label>
+                        <input type="number" id="dropPenalty" value="1.2" autocomplete="off">
+                        <label for="connectionDistance">Connection Distance</label>
+                        <input type="number" id="connectionDistance" value="250" autocomplete="off">
+                    </div>
+                </details>
+                <details id="engineSettings">
+                    <summary>Engine Settings</summary>
+                    <div id="engineSettingsContent">
+                        <label for="updateInterval">Update Interval</label>
+                        <input type="number" id="updateInterval" value="10" autocomplete="off">
+                    </div>
+                </details>
             </div>
             <div id="centerColumn" style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 70%; height: 100%; margin: 0 auto;">
                 <div id="simContainer"></div>
@@ -20,10 +39,15 @@
                     <div id="controlButtons">
                         <button id="addNode" class="controlButton">Add Node</button>
                         <button id="sendPacket" class="controlButton">Send Packet</button>
+                        <button id="resetTTLColors" class="controlButton">Reset TTL Colors</button>
                     </div>
                     <div id="simToggles">
                         <input type="checkbox" id="showRanges" class="simToggle">
                         <label for="showRanges">Show Ranges</label>
+                        <input type="checkbox" id="showTTL" class="simToggle" checked>
+                        <label for="showTTL">Show TTL Colors</label>
+                        <input type="checkbox" id="quickPlace" class="simToggle">
+                        <label for="quickPlace">Quick Place</label>
                     </div>
                 </div>
             </div>

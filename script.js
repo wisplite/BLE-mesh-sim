@@ -1,6 +1,52 @@
 var UPDATE_INTERVAL = 10;
 var CONNECTION_DISTANCE = 250;
-var DROP_PENTALTY = 1.2;
+var DROP_PENALTY = 1.2;
+var TTL = 5;
+
+function smoothColorTransition(color1, color2, min, max, current) {
+    // Clamp current between min and max
+    const clamped = Math.min(Math.max(current, min), max);
+  
+    // Convert hex to RGB
+    const hexToRgb = (hex) => {
+      hex = hex.replace(/^#/, "");
+      if (hex.length === 3) {
+        hex = hex
+          .split("")
+          .map((c) => c + c)
+          .join("");
+      }
+      const num = parseInt(hex, 16);
+      return {
+        r: (num >> 16) & 255,
+        g: (num >> 8) & 255,
+        b: num & 255,
+      };
+    };
+  
+    // Convert RGB to hex
+    const rgbToHex = (r, g, b) =>
+      "#" +
+      [r, g, b]
+        .map((x) => {
+          const hex = x.toString(16);
+          return hex.length === 1 ? "0" + hex : hex;
+        })
+        .join("");
+  
+    const c1 = hexToRgb(color1);
+    const c2 = hexToRgb(color2);
+  
+    // Normalize factor (0 → min, 1 → max)
+    const t = (clamped - min) / (max - min);
+  
+    // Interpolate each channel
+    const r = Math.round(c1.r + (c2.r - c1.r) * t);
+    const g = Math.round(c1.g + (c2.g - c1.g) * t);
+    const b = Math.round(c1.b + (c2.b - c1.b) * t);
+  
+    return rgbToHex(r, g, b);
+  }
 
 var nodes = new vis.DataSet([
 ]);
@@ -51,10 +97,64 @@ var onEdgeEngine = new CompleteNodeOnEdgeEngine(network, nodes, dotNodes, edges,
 onEdgeEngine.createEdgesTable();
 onEdgeEngine.initMovement();
 onEdgeEngine.setArrivalCallback(({ from, to, dot }) => {
-    // Example: log arrival; dot removal is handled by engine
-    // For flood behavior, you can spawn new dots here if needed
-    console.log(`Dot ${dot.id} arrived from ${from} to ${to}`);
+    if (nodeTable[to].packetCache.includes(dot.id.split('-')[0])) {
+        return;
+    }
+    // update color of receiving node for visualization
+    nodeTable[to].packetCache.push(dot.id.split('-')[0]);
+    var packetId = dot.id.split('-')[0];
+    var ttl = parseInt(dot.id.split('-')[2]); 
+    ttl--;
+    if (document.getElementById('showTTL').checked) {
+        nodes.update({id: to, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
+    } else {
+        nodes.update({id: to, color: {background: '#97c2fc'}});
+    }
+    if (ttl > 0) {
+        const neighborsSnapshot = nodeTable[to].outgoing.slice();
+        for (let neighbor of neighborsSnapshot) {
+            if (neighbor === from) {
+                continue;
+            }
+            console.log(`Sending packet ${packetId} from ${to} to ${neighbor}`);
+            var packetShift = generateRealisticLabel();
+            var movingNode = {
+                id: `${packetId}-${packetShift}-${ttl}`,
+                label: packetId + `-${ttl}`,
+                shape: dot.shape,
+                size: dot.size,
+                color: dot.color,
+            };
+            onEdgeEngine.createDotNode(movingNode, to, neighbor);
+        }
+    } else {
+        if (document.getElementById('showTTL').checked) {
+            markNeighborsAsFailed(to, from, packetId);
+        }
+    }
 });
+
+const markNeighborsAsFailed = (nodeId, from, packetId, visited = new Set()) => {
+    if (visited.has(nodeId)) {
+        return;
+    }
+    visited.add(nodeId);
+
+    const neighborsSnapshot = (nodeTable[nodeId]?.outgoing?.slice()) || [];
+    for (let neighbor of neighborsSnapshot) {
+        if (visited.has(neighbor)) {
+            continue;
+        }
+        if (nodeTable[neighbor]?.packetCache?.includes(packetId)) {
+            continue;
+        }
+        if (neighbor === from) {
+            continue;
+        }
+        nodes.update({id: neighbor, color: {background: 'white'}});
+        markNeighborsAsFailed(neighbor, nodeId, packetId, visited);
+    }
+}
 
 function nodeSelectUpdateHandler(properties) {
     // get containers
@@ -259,7 +359,7 @@ function main() {
                     if (nodeTable[existingNode].incoming.length == 0) {
                         existingScore += 10000;
                     }
-                    if (existingScore * DROP_PENTALTY < score.score) {
+                    if (existingScore * DROP_PENALTY < score.score) {
                         //console.log(`Dropping ${existingNode} from ${node1} for better ${score.node}`);
                         const outIdx = nodeTable[node1].outgoing.indexOf(existingNode);
                         if (outIdx !== -1) {
@@ -297,17 +397,45 @@ main();
 document.getElementById('addNode').addEventListener('click', function() {
     const nodeId = generateRealisticLabel();
     nodes.add({id: nodeId, label: nodeId});
-    nodeTable[nodeId] = {'incoming': [], 'outgoing': []};
+    nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'packetCache': []};
+});
+
+network.on('click', function(properties) {
+    if (properties.nodes.length > 0) {
+        return;
+    }
+    if (document.getElementById('quickPlace').checked) {
+        const nodeId = generateRealisticLabel();
+        nodes.add({id: nodeId, label: nodeId, x: properties.pointer.canvas.x, y: properties.pointer.canvas.y});
+        nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'packetCache': []};
+    }
+});
+
+network.on('doubleClick', function(properties) {
+    if (document.getElementById('quickPlace').checked) {
+        return;
+    }
+    if (properties.nodes.length > 0) {
+        return;
+    }
+    const nodeId = generateRealisticLabel();
+    nodes.add({id: nodeId, label: nodeId, x: properties.pointer.canvas.x, y: properties.pointer.canvas.y});
+    nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'packetCache': []};
 });
 
 document.getElementById('sendPacket').addEventListener('click', function() {
+    if (selectedNode == null) {
+        return;
+    }
     onEdgeEngine.createEdgesTable();
     const packetId = generateRealisticLabel();
-    let packetShift = 0;
+    var packetShift = generateRealisticLabel();
+    let ttl = TTL;
+    nodes.update({id: selectedNode, color: {background: '#97c2fc'}});
     for (let connection of nodeTable[selectedNode].outgoing) {
         var movingNode = {
-            id: `${packetId}-${packetShift}`,
-            label: packetId,
+            id: `${packetId}-${packetShift}-${ttl}`,
+            label: packetId + `-${ttl}`,
             shape: 'dot',
             size: 6,
             color: {
@@ -316,6 +444,29 @@ document.getElementById('sendPacket').addEventListener('click', function() {
             },
         };
         onEdgeEngine.createDotNode(movingNode, selectedNode, connection);
-        packetShift++;
+        nodeTable[selectedNode].packetCache.push(packetId);
+        packetShift = generateRealisticLabel();
     }
+});
+
+document.getElementById('resetTTLColors').addEventListener('click', function() {
+    for (let node of nodes.get()) {
+        nodes.update({id: node.id, color: {background: '#97c2fc'}});
+    }
+});
+
+document.getElementById('updateInterval').addEventListener('change', function() {
+    UPDATE_INTERVAL = parseInt(this.value);
+});
+
+document.getElementById('connectionDistance').addEventListener('change', function() {
+    CONNECTION_DISTANCE = parseInt(this.value);
+});
+
+document.getElementById('dropPenalty').addEventListener('change', function() {
+    DROP_PENALTY = parseFloat(this.value);
+});
+
+document.getElementById('ttl').addEventListener('change', function() {
+    TTL = parseInt(this.value);
 });

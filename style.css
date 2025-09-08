@@ -67,3 +67,27 @@ html, body {
     flex-shrink: 1;
     gap: 10px;
 }
+
+#simpleSettingsContent {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-left: 20px;
+    padding-top: 10px;
+}
+
+#engineSettingsContent {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-left: 20px;
+    padding-top: 10px;
+}
+
+#simpleSettings {
+    margin-bottom: 10px;
+}
+
+#engineSettings {
+    margin-bottom: 10px;
+}
