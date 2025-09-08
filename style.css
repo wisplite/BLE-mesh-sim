@@ -79,3 +79,30 @@ html, body {
 #simpleSettings, #hardwareConstraints, #engineSettings {
     margin-bottom: 10px;
 }
+
+#randomGraphModal {
+    display: none;
+    position: absolute;
+    top: 0%;
+    left: 0%;
+    transform: translate(0%, 0%);
+    background-color: rgba(0, 0, 0, 0.5);
+    padding: 20px;
+    border: 1px solid #000;
+    width: 100%;
+    height: 100%;
+}
+
+#randomGraphModalContent {
+    padding: 20px;
+    background-color: #fff;
+    border: 1px solid #000;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+#createRandomGraphConfirm {
+    margin-top: 10px;
+}

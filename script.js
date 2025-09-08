@@ -480,3 +480,32 @@ document.getElementById('maxOutgoingConnections').addEventListener('change', fun
 document.getElementById('maxIncomingConnections').addEventListener('change', function() {
     MAX_INCOMING_CONNECTIONS = parseInt(this.value);
 });
+
+document.getElementById('createRandomGraph').addEventListener('click', function() {
+    document.getElementById('randomGraphModal').style.display = 'block';
+});
+
+document.getElementById('createRandomGraphConfirm').addEventListener('click', function() {
+    const nodeCount = parseInt(document.getElementById('randomGraphNodes').value);
+    network.setOptions({
+        nodes: {
+            shape: 'box',
+            physics: true,
+        },
+    });
+    for (let i = 0; i < nodeCount; i++) {
+        const nodeId = generateRealisticLabel();
+        nodes.add({id: nodeId, label: nodeId, x: Math.random() * 100, y: Math.random() * 100});
+        nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'packetCache': []};
+    }
+
+    setTimeout(() => {
+        network.setOptions({
+            nodes: {
+                shape: 'box',
+                physics: false,
+            }
+        });
+    }, 2000);
+    document.getElementById('randomGraphModal').style.display = 'none';
+});
