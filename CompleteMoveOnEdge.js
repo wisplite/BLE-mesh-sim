@@ -13,6 +13,7 @@ class CompleteNodeOnEdgeEngine {
         this.edges = edges;
         this.dotNodes = dotNodes;
         this.forwTable = forwTable;
+        this.onArrival = null;
 
 
         this.linksByEdges = {};
@@ -28,6 +29,10 @@ class CompleteNodeOnEdgeEngine {
         this.timer = null;
         this.lastTime = 0;
         this.targetInterval = this.time_delay;
+    }
+
+    setArrivalCallback(callback) {
+        this.onArrival = callback;
     }
 
     /**
@@ -143,9 +148,9 @@ class CompleteNodeOnEdgeEngine {
             this.maxTime = Math.max(this.maxTime, this.currentTime);
         }
 
-        document.getElementById("currenttime").innerHTML = this.currentTime/1000;
+        /*document.getElementById("currenttime").innerHTML = this.currentTime/1000;
         document.getElementById("ratio_inc").innerHTML = this.ratio_inc/100;
-        document.getElementById("maxtime").innerHTML = this.maxTime/1000;
+        document.getElementById("maxtime").innerHTML = this.maxTime/1000;*/
     }
 
     /**
@@ -186,7 +191,10 @@ class CompleteNodeOnEdgeEngine {
             dotNode.ratio += current_ratio;
             if (dotNode.ratio > 100) {
                 this.traces_table[dotNode.id].push(dotNode.target);
-                if (!this.updateDotNode(dotNode, dotNode.target, this.forwTable[dotNode.target][dotNode.source], dotNode.ratio - 100)) {
+                if (typeof this.onArrival === 'function') {
+                    try {
+                        this.onArrival({ from: dotNode.source, to: dotNode.target, dot: dotNode });
+                    } catch (e) {}
                     this.dotNodes.remove(dotNode, time);
                     return;
                 }

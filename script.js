@@ -42,6 +42,20 @@ var options = {
 var network = new vis.Network(container, data, options);
 let selectedNode = null;
 
+var dotNodes = new vis.DataSet([
+]);
+
+var forwardTable = {};
+
+var onEdgeEngine = new CompleteNodeOnEdgeEngine(network, nodes, dotNodes, edges, forwardTable);
+onEdgeEngine.createEdgesTable();
+onEdgeEngine.initMovement();
+onEdgeEngine.setArrivalCallback(({ from, to, dot }) => {
+    // Example: log arrival; dot removal is handled by engine
+    // For flood behavior, you can spawn new dots here if needed
+    console.log(`Dot ${dot.id} arrived from ${from} to ${to}`);
+});
+
 function nodeSelectUpdateHandler(properties) {
     // get containers
     const incomingTable = document.getElementById('incomingConnections');
@@ -177,6 +191,9 @@ function main() {
     const currentNodesKeys = Object.keys(currentNodes);
     for (let node1 of currentNodesKeys) {
         let neighbors = [];
+        if (!nodeTable[node1]) {
+            continue;
+        }
         for (let node2 of currentNodesKeys) {
             if (node1 !== node2) {
                 const node1data = currentNodes[node1];
@@ -199,6 +216,9 @@ function main() {
         }
         const scores = [];
         for (let neighbor of neighbors) {
+            if (!nodeTable[neighbor.node]) {
+                continue;
+            }
             let connectionScore = 0;
             let dropScore = 0;
             connectionScore += (100 + neighbor.distance);
@@ -275,4 +295,25 @@ document.getElementById('addNode').addEventListener('click', function() {
     const nodeId = generateRealisticLabel();
     nodes.add({id: nodeId, label: nodeId});
     nodeTable[nodeId] = {'incoming': [], 'outgoing': []};
+});
+
+document.getElementById('sendPacket').addEventListener('click', function() {
+    onEdgeEngine.createEdgesTable();
+    onEdgeEngine.initMovement();
+    const packetId = generateRealisticLabel();
+    const packetShift = 0;
+    for (let connection of nodeTable[selectedNode].outgoing) {
+        var movingNode = {
+            id: packetId + packetShift,
+            label: packetId,
+            shape: 'dot',
+            size: 6,
+            color: {
+                background: 'white',
+                border: 'black'
+            },
+        };
+        onEdgeEngine.createDotNode(movingNode, selectedNode, connection);
+        packetShift++;
+    }
 });
