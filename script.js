@@ -195,6 +195,9 @@ function main() {
             continue;
         }
         for (let node2 of currentNodesKeys) {
+            if (!nodeTable[node2]) {
+                continue;
+            }
             if (node1 !== node2) {
                 const node1data = currentNodes[node1];
                 const node2data = currentNodes[node2];

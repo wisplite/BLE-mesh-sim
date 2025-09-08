@@ -30,6 +30,57 @@ class CompleteNodeOnEdgeEngine {
         this.lastTime = 0;
         this.targetInterval = this.time_delay;
         this._movementInitialized = false;
+
+        // Keep linksByEdges up-to-date for dynamic graph changes
+        if (this.nodes && this.nodes.on) {
+            this.nodes.on('add', (event, properties) => {
+                if (!properties || !properties.items) { return; }
+                properties.items.forEach((nodeId) => {
+                    if (this.linksByEdges[nodeId] === undefined) {
+                        this.linksByEdges[nodeId] = {};
+                    }
+                });
+            });
+            this.nodes.on('remove', (event, properties) => {
+                if (!properties || !properties.oldData) { return; }
+                properties.oldData.forEach((node) => {
+                    // Remove row for this node
+                    delete this.linksByEdges[node.id];
+                    // Remove any incoming mappings pointing to this node
+                    Object.keys(this.linksByEdges).forEach((fromId) => {
+                        if (this.linksByEdges[fromId]) {
+                            delete this.linksByEdges[fromId][node.id];
+                        }
+                    });
+                });
+            });
+        }
+
+        if (this.edges && this.edges.on) {
+            this.edges.on('add', (event, properties) => {
+                if (!properties || !properties.items) { return; }
+                properties.items.forEach((edgeId) => {
+                    const edge = this.edges.get(edgeId);
+                    if (!edge) { return; }
+                    if (this.linksByEdges[edge.from] === undefined) {
+                        this.linksByEdges[edge.from] = {};
+                    }
+                    this.linksByEdges[edge.from][edge.to] = edge.id;
+                    // Initialize cache container
+                    if (edge.pointsArr === undefined) {
+                        edge.pointsArr = {};
+                    }
+                });
+            });
+            this.edges.on('remove', (event, properties) => {
+                if (!properties || !properties.oldData) { return; }
+                properties.oldData.forEach((edge) => {
+                    if (edge && this.linksByEdges[edge.from]) {
+                        delete this.linksByEdges[edge.from][edge.to];
+                    }
+                });
+            });
+        }
     }
 
     setArrivalCallback(callback) {
@@ -60,7 +111,10 @@ class CompleteNodeOnEdgeEngine {
             }
             this.edgesMoved = true;
             params.edges.forEach((edgeId) => {
-                this.edges.get(edgeId).pointsArr = {};
+                const edgeItem = this.edges.get(edgeId);
+                if (edgeItem) {
+                    edgeItem.pointsArr = {};
+                }
             });
         });
 
@@ -221,14 +275,54 @@ class CompleteNodeOnEdgeEngine {
      */
     fixDotOnEdge(dotNode) {
         var edge = this.network.body.edges[dotNode.edge];
-        var current_ratio = dotNode.reversed ? 100 - dotNode.ratio : dotNode.ratio;
-        var edgePoint = this.edges.get(edge.id).pointsArr[current_ratio];
-        if (edgePoint === undefined) {
-            edgePoint = edge.edgeType.getPoint(current_ratio / 100);
-            this.edges.get(edge.id).pointsArr[current_ratio] = edgePoint;
+        // If the underlying edge no longer exists (dynamic removal), try to retarget or drop the dot
+        if (edge === undefined) {
+            var path = this.getEdgeConnectingNodes(dotNode.source, dotNode.target);
+            if (path[0] === undefined) {
+                // No longer a direct path; remove the moving dot gracefully
+                this.dotNodes.remove(dotNode);
+                return;
+            }
+            dotNode.edge = path[0];
+            dotNode.reversed = path[1];
+            edge = this.network.body.edges[dotNode.edge];
+            if (edge === undefined) {
+                // Network body not updated yet; skip this frame
+                return;
+            }
         }
-        this.network.body.nodes[dotNode.id].x = edgePoint.x;
-        this.network.body.nodes[dotNode.id].y = edgePoint.y;
+
+        var current_ratio = dotNode.reversed ? 100 - dotNode.ratio : dotNode.ratio;
+        var datasetEdge = this.edges.get(edge.id);
+        if (!datasetEdge) {
+            // Edge was removed from DataSet; attempt to retarget
+            var retryPath = this.getEdgeConnectingNodes(dotNode.source, dotNode.target);
+            if (retryPath[0] === undefined) {
+                this.dotNodes.remove(dotNode);
+                return;
+            }
+            dotNode.edge = retryPath[0];
+            dotNode.reversed = retryPath[1];
+            edge = this.network.body.edges[dotNode.edge];
+            if (!edge) { return; }
+            datasetEdge = this.edges.get(edge.id);
+            if (!datasetEdge) { return; }
+        }
+        if (datasetEdge.pointsArr === undefined) {
+            datasetEdge.pointsArr = {};
+        }
+        var edgePoint = datasetEdge.pointsArr[current_ratio];
+        if (edgePoint === undefined) {
+            if (!edge.edgeType || !edge.edgeType.getPoint) {
+                return;
+            }
+            edgePoint = edge.edgeType.getPoint(current_ratio / 100);
+            datasetEdge.pointsArr[current_ratio] = edgePoint;
+        }
+        if (this.network.body.nodes[dotNode.id]) {
+            this.network.body.nodes[dotNode.id].x = edgePoint.x;
+            this.network.body.nodes[dotNode.id].y = edgePoint.y;
+        }
     }
 
     /**
@@ -301,7 +395,7 @@ class CompleteNodeOnEdgeEngine {
     */
     createEdgesTable() {
         this.nodes.forEach((node) => {
-            this.linksByEdges[node.id] = {};
+            this.linksByEdges[node.id] = this.linksByEdges[node.id] || {};
         });
 
         this.edges.forEach((edge) => {
@@ -317,11 +411,13 @@ class CompleteNodeOnEdgeEngine {
     * @returns {array} - An array containing the edge ID and a flag indicating if the edge is reversed.
     */
     getEdgeConnectingNodes(nodeId1, nodeId2) {
-        var edgeId = this.linksByEdges[nodeId1][nodeId2];
+        var map1 = this.linksByEdges[nodeId1];
+        var edgeId = map1 ? map1[nodeId2] : undefined;
         if (edgeId !== undefined) {
             return [edgeId, false];
         }
-        edgeId = this.linksByEdges[nodeId2][nodeId1];
+        var map2 = this.linksByEdges[nodeId2];
+        edgeId = map2 ? map2[nodeId1] : undefined;
         if (edgeId !== undefined) {
             return [edgeId, true];
         }
