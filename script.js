@@ -124,7 +124,6 @@ onEdgeEngine.setArrivalCallback(({ from, to, dot }) => {
             if (neighbor === from) {
                 continue;
             }
-            console.log(`Sending packet ${packetId} from ${to} to ${neighbor}`);
             var packetShift = generateRealisticLabel();
             var movingNode = {
                 id: `${packetId}-${packetShift}-${ttl}`,
@@ -546,7 +545,6 @@ document.getElementById('createRandomGraphConfirm').addEventListener('click', fu
         onNodeAdd();
         nodeCounter++;
         if (nodeCounter >= nodeCount) {
-            console.log('Node count reached');
             clearInterval(interval);
             setTimeout(() => {
                 network.setOptions({
