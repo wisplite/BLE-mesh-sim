@@ -68,7 +68,7 @@ html, body {
     gap: 10px;
 }
 
-#simpleSettingsContent {
+#simpleSettingsContent, #engineSettingsContent, #hardwareConstraintsContent {
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -76,18 +76,6 @@ html, body {
     padding-top: 10px;
 }
 
-#engineSettingsContent {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding-left: 20px;
-    padding-top: 10px;
-}
-
-#simpleSettings {
-    margin-bottom: 10px;
-}
-
-#engineSettings {
+#simpleSettings, #hardwareConstraints, #engineSettings {
     margin-bottom: 10px;
 }

@@ -2,6 +2,8 @@ var UPDATE_INTERVAL = 10;
 var CONNECTION_DISTANCE = 250;
 var DROP_PENALTY = 1.2;
 var TTL = 5;
+var MAX_OUTGOING_CONNECTIONS = 3;
+var MAX_INCOMING_CONNECTIONS = 3;
 
 function smoothColorTransition(color1, color2, min, max, current) {
     // Clamp current between min and max
@@ -329,7 +331,7 @@ function main() {
             if (nodeTable[neighbor.node].incoming.length == 0) {
                 connectionScore += 10000;
             }
-            if (nodeTable[neighbor.node].incoming.length >= 3) {
+            if (nodeTable[neighbor.node].incoming.length >= MAX_INCOMING_CONNECTIONS) {
                 continue;
             }
             if (nodeTable[node1].outgoing.includes(neighbor.node)) {
@@ -341,7 +343,7 @@ function main() {
         const neighborMap = new Map(neighbors.map(n => [n.node, n]));
         const top3 = scores.slice(0, 3);
         for (let score of top3) {
-            if (nodeTable[node1].outgoing.length >= 3) {
+            if (nodeTable[node1].outgoing.length >= MAX_OUTGOING_CONNECTIONS) {
                 let dropped = false;
                 if (nodeTable[node1].outgoing.includes(score.node)) {
                     //console.log(`${score.node} is already in outgoing; skipping drop attempt`);
@@ -378,7 +380,7 @@ function main() {
                     }
                 }
                 // still at capacity and nothing was dropped — skip adding this candidate
-                if (nodeTable[node1].outgoing.length >= 3 && !dropped) {
+                if (nodeTable[node1].outgoing.length >= MAX_OUTGOING_CONNECTIONS && !dropped) {
                     continue;
                 }
             }
@@ -469,4 +471,12 @@ document.getElementById('dropPenalty').addEventListener('change', function() {
 
 document.getElementById('ttl').addEventListener('change', function() {
     TTL = parseInt(this.value);
+});
+
+document.getElementById('maxOutgoingConnections').addEventListener('change', function() {
+    MAX_OUTGOING_CONNECTIONS = parseInt(this.value);
+});
+
+document.getElementById('maxIncomingConnections').addEventListener('change', function() {
+    MAX_INCOMING_CONNECTIONS = parseInt(this.value);
 });
