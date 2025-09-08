@@ -9,14 +9,25 @@
         <link rel="stylesheet" href="style.css">
     </head>
     <body>
-        <div id="simContainer"></div>
-        <div id="controlContainer">
-            <div id="controlButtons">
-                <button id="addNode" class="controlButton">Add Node</button>
+        <div id="rowFlex" style="display: flex; flex-direction: row; align-items: start; justify-content: center; width: 100%; height: 100%;">
+            <div id="propertyViewer">
+
             </div>
-            <div id="simToggles">
-                <input type="checkbox" id="showRanges" class="simToggle">
-                <label for="showRanges">Show Ranges</label>
+            <div id="centerColumn" style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 70%; height: 100%; margin: 0 auto;">
+                <div id="simContainer"></div>
+                <div id="controlContainer">
+                    <div id="controlButtons">
+                        <button id="addNode" class="controlButton">Add Node</button>
+                    </div>
+                    <div id="simToggles">
+                        <input type="checkbox" id="showRanges" class="simToggle">
+                        <label for="showRanges">Show Ranges</label>
+                    </div>
+                </div>
+            </div>
+            <div id="connectionViewer">
+                <details id="incomingConnections"><summary>Incoming Connections</summary></details>
+                <details id="outgoingConnections"><summary>Outgoing Connections</summary></details>
             </div>
         </div>
         <script type="text/javascript" src="script.js"></script>
