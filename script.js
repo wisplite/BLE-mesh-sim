@@ -4,6 +4,7 @@ var DROP_PENALTY = 1.2;
 var TTL = 5;
 var MAX_OUTGOING_CONNECTIONS = 3;
 var MAX_INCOMING_CONNECTIONS = 3;
+var warningModalShown = false;
 
 function smoothColorTransition(color1, color2, min, max, current) {
     // Clamp current between min and max
@@ -396,10 +397,28 @@ function main() {
 }
 main();
 
+function onNodeAdd() {
+    var nodeLength = Object.keys(nodeTable).length;
+    if (nodeLength >= 200 && !warningModalShown) {
+        warningModalShown = true;
+        document.getElementById('warningModal').style.display = 'block';
+        document.getElementById('warningModalMessage').innerHTML = 'Large network detected; simulation speed will be reduced.';
+        document.getElementById('updateInterval').disabled = true;
+        document.getElementById('updateInterval').value = nodeLength*2;
+        UPDATE_INTERVAL = nodeLength*2;
+        document.getElementById('simSpeed').value = 1;
+        onEdgeEngine.setSimulationSpeed(1);
+    } else if (nodeLength >= 200 && warningModalShown) {
+        document.getElementById('updateInterval').value = nodeLength*2;
+        UPDATE_INTERVAL = nodeLength*2;
+    }
+}
+
 document.getElementById('addNode').addEventListener('click', function() {
     const nodeId = generateRealisticLabel();
     nodes.add({id: nodeId, label: nodeId});
     nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'packetCache': []};
+    onNodeAdd();
 });
 
 network.on('click', function(properties) {
@@ -410,6 +429,7 @@ network.on('click', function(properties) {
         const nodeId = generateRealisticLabel();
         nodes.add({id: nodeId, label: nodeId, x: properties.pointer.canvas.x, y: properties.pointer.canvas.y});
         nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'packetCache': []};
+        onNodeAdd();
     }
 });
 
@@ -423,6 +443,7 @@ network.on('doubleClick', function(properties) {
     const nodeId = generateRealisticLabel();
     nodes.add({id: nodeId, label: nodeId, x: properties.pointer.canvas.x, y: properties.pointer.canvas.y});
     nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'packetCache': []};
+    onNodeAdd();
 });
 
 document.getElementById('sendPacket').addEventListener('click', function() {
@@ -506,6 +527,7 @@ document.getElementById('createRandomGraphConfirm').addEventListener('click', fu
         const nodeId = generateRealisticLabel();
         nodes.add({id: nodeId, label: nodeId, x: Math.random() * 100, y: Math.random() * 100});
         nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'packetCache': []};
+        onNodeAdd();
         nodeCounter++;
         if (nodeCounter >= nodeCount) {
             console.log('Node count reached');

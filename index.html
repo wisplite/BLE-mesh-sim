@@ -51,7 +51,7 @@
                         <button id="addNode" class="controlButton">Add Node</button>
                         <button id="sendPacket" class="controlButton">Send Packet</button>
                         <button id="resetTTLColors" class="controlButton">Reset TTL Colors</button>
-                        <button id="createRandomGraph" class="controlButton">Create Random Graph</button>
+                        <button id="createRandomGraph" class="controlButton">Create Random Network</button>
                     </div>
                     <div id="simToggles">
                         <input type="checkbox" id="showRanges" class="simToggle">
@@ -71,7 +71,13 @@
                 <div id="randomGraphModalContent">
                     <label for="randomGraphNodes">Number of Nodes</label>
                     <input type="number" id="randomGraphNodes" value="10" autocomplete="off">
-                    <button id="createRandomGraphConfirm" class="controlButton">Create Random Graph</button>
+                    <button id="createRandomGraphConfirm" class="controlButton">Create</button>
+                </div>
+            </div>
+            <div id="warningModal">
+                <div id="warningModalContent">
+                    <p id="warningModalMessage"></p>
+                    <button id="warningModalConfirm" class="controlButton" onclick="document.getElementById('warningModal').style.display = 'none';">OK</button>
                 </div>
             </div>
         </div>
