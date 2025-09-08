@@ -150,6 +150,29 @@ const markNeighborsAsFailed = (nodeId, from, packetId, visited = new Set()) => {
     }
     visited.add(nodeId);
 
+    if (warningModalShown) {
+        // enable walkthrough mode to prevent browser from freezing
+        const neighborsSnapshot = (nodeTable[nodeId]?.outgoing?.slice()) || [];
+        const neighborsLength = neighborsSnapshot.length;
+        let currentIdx = 0;
+        const intervalId = setInterval(() => {
+            if (currentIdx < neighborsLength) {
+                const neighbor = neighborsSnapshot[currentIdx];
+                if (!visited.has(neighbor) && 
+                    !nodeTable[neighbor]?.packetCache?.includes(packetId) && 
+                    neighbor !== from) {
+                    nodes.update({id: neighbor, color: {background: 'white'}});
+                    edges.update({id: `${nodeId}->${neighbor}`, color: {color: 'white', highlight: '#97c2fc'}});
+                    markNeighborsAsFailed(neighbor, nodeId, packetId, visited);
+                }
+                currentIdx++;
+            } else {
+                clearInterval(intervalId);
+            }
+        }, 10);
+        return;
+    }
+
     const neighborsSnapshot = (nodeTable[nodeId]?.outgoing?.slice()) || [];
     for (let neighbor of neighborsSnapshot) {
         if (visited.has(neighbor)) {
@@ -411,6 +434,8 @@ function onNodeAdd() {
         warningModalShown = true;
         document.getElementById('warningModal').style.display = 'block';
         document.getElementById('warningModalMessage').innerHTML = 'Large network detected; simulation speed will be reduced.';
+        document.getElementById('warningModalCustomContent').innerHTML = `<details><summary>What does this mean?</summary>
+        <p>The simulation, by default, computes every node's connections 100 'times' per second. Due to the size of this network, this could cause the browser to freeze. To prevent this, the update interval (found in engine settings) is now locked to a multiple of the number of nodes. Additionally, when computing which nodes weren't reached after a packet is sent, the simulation will now walk through the network in steps rather than computing everything at once.</p>`;
         document.getElementById('updateInterval').disabled = true;
         document.getElementById('updateInterval').value = nodeLength*2;
         UPDATE_INTERVAL = nodeLength*2;
