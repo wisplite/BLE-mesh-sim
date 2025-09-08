@@ -299,12 +299,11 @@ document.getElementById('addNode').addEventListener('click', function() {
 
 document.getElementById('sendPacket').addEventListener('click', function() {
     onEdgeEngine.createEdgesTable();
-    onEdgeEngine.initMovement();
     const packetId = generateRealisticLabel();
-    const packetShift = 0;
+    let packetShift = 0;
     for (let connection of nodeTable[selectedNode].outgoing) {
         var movingNode = {
-            id: packetId + packetShift,
+            id: `${packetId}-${packetShift}`,
             label: packetId,
             shape: 'dot',
             size: 6,

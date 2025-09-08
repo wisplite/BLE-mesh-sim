@@ -29,6 +29,7 @@ class CompleteNodeOnEdgeEngine {
         this.timer = null;
         this.lastTime = 0;
         this.targetInterval = this.time_delay;
+        this._movementInitialized = false;
     }
 
     setArrivalCallback(callback) {
@@ -39,6 +40,10 @@ class CompleteNodeOnEdgeEngine {
      * Initializes the movement of the nodes on edges.
      */
     initMovement() {
+        if (this._movementInitialized) {
+            return;
+        }
+        this._movementInitialized = true;
         // Update the position of the dot node before the redraw event
         this.network.on('beforeDrawing', (ctx) => {
             if (this.edgesMoved) {
