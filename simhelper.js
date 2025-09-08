@@ -5,3 +5,20 @@ function generateRealisticLabel() {
 function calculateDistance(node1, node2) {
     return Math.sqrt((node1.x - node2.x) ** 2 + (node1.y - node2.y) ** 2);
 }
+
+function connectNodes(node1, node2) {
+    if (edges.get(`${node1}->${node2}`)) {
+        return;
+    }
+    const edgeId = `${node1}->${node2}`;
+    edges.add({
+        id: edgeId,
+        from: node1,
+        to: node2,
+        smooth: { enabled: true, type: 'curvedCW', roundness: 0.1 }
+    });
+}
+
+function distanceToRSSI(distance) {
+    return -10 - 26 * Math.log10(distance);
+}
