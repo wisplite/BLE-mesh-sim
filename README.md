@@ -15,3 +15,5 @@ When sending packets, the colors of each node will change to reflect the TTL of 
 I have also found that this simulation can vary wildly in performance depending on the machine it's running on. Make sure your browser supports GPU acceleration, or else this will run very poorly with large networks.
 
 You should be able to run this simulation by opening the `index.html` file in your browser, there's no fancy stack or anything, just pure HTML, CSS, and JavaScript.
+
+You can also open it on GitHub Pages here: https://wisplite.github.io/BLE-mesh-sim/
