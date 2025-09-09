@@ -623,7 +623,7 @@ function onNodeAdd() {
 document.getElementById('addNode').addEventListener('click', function() {
     const nodeId = generateRealisticLabel();
     nodes.add({id: nodeId, label: nodeId});
-    nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'emergencyIncoming': [], 'emergencyOutgoing': [], 'packetCache': [], 'routingTable': {}};
+    nodeTable[nodeId] = {'connected_nodes': [], 'packetCache': [], 'routingTable': {}};
     onNodeAdd();
 });
 
@@ -634,7 +634,7 @@ network.on('click', function(properties) {
     if (document.getElementById('quickPlace').checked) {
         const nodeId = generateRealisticLabel();
         nodes.add({id: nodeId, label: nodeId, x: properties.pointer.canvas.x, y: properties.pointer.canvas.y});
-        nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'emergencyIncoming': [], 'emergencyOutgoing': [], 'packetCache': [], 'routingTable': {}};
+        nodeTable[nodeId] = {'connected_nodes': [], 'packetCache': [], 'routingTable': {}};
         onNodeAdd();
     }
 });
@@ -649,7 +649,7 @@ network.on('doubleClick', function(properties) {
     }
     const nodeId = generateRealisticLabel();
     nodes.add({id: nodeId, label: nodeId, x: properties.pointer.canvas.x, y: properties.pointer.canvas.y});
-    nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'emergencyIncoming': [], 'emergencyOutgoing': [], 'packetCache': [], 'routingTable': {}};
+    nodeTable[nodeId] = {'connected_nodes': [], 'packetCache': [], 'routingTable': {}};
     onNodeAdd();
 });
 
@@ -740,7 +740,7 @@ document.getElementById('createRandomGraphConfirm').addEventListener('click', fu
     const interval = setInterval(() => {
         const nodeId = generateRealisticLabel();
         nodes.add({id: nodeId, label: nodeId, x: Math.random() * 1000, y: Math.random() * 1000});
-        nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'emergencyIncoming': [], 'emergencyOutgoing': [], 'packetCache': [], 'routingTable': {}};
+        nodeTable[nodeId] = {'connected_nodes': [], 'packetCache': [], 'routingTable': {}};
         onNodeAdd();
         nodeCounter++;
         if (nodeCounter >= nodeCount) {
