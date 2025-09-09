@@ -563,7 +563,7 @@ network.on('beforeDrawing', function(ctx) {
     if (showGrid) {
         drawGrid(ctx);
     }
-    if (selectedNode) {
+    if (selectedNode && document.getElementById('showRanges').checked) {
         drawRange(ctx);
     }
 });
