@@ -43,30 +43,44 @@
                         <input type="number" id="simSpeed" value="1" min="0.1" step="0.1" autocomplete="off">
                     </div>
                 </details>
+                <details id="visualizationSettings">
+                    <summary>Visualization Settings</summary>
+                    <div id="visualizationSettingsContent">
+                        <div id="visualizationSettingsToggles">
+                            <input type="checkbox" id="showRanges">
+                            <label for="showRanges">Show Ranges</label>
+                        </div>
+                        <div id="visualizationSettingsToggles">
+                            <input type="checkbox" id="showTTL" checked>
+                            <label for="showTTL">Show TTL Colors</label>
+                        </div>
+                        <div id="visualizationSettingsToggles">
+                            <input type="checkbox" id="darkMode" checked>
+                            <label for="darkMode">Dark Mode</label>
+                        </div>
+                    </div>
+                </details>
                 <div style="display: flex; flex-grow: 1; height: auto;"></div>
                 <hr style="width: 100%;"/>
                 <div id="darkModeContainer">
-                    <input type="checkbox" id="darkMode" class="simToggle">
-                    <label for="darkMode">Dark Mode</label>
+                    <input type="checkbox" id="quickPlace" class="simToggle">
+                    <label for="quickPlace">Quick Place</label>
                 </div>
             </div>
             <div id="centerColumn" style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 70%; height: 100%; margin: 0 auto;">
                 <div id="simContainer"></div>
+                
+                <div id="routingProgressContainer" style="display: none;">
+                    <progress id="routingProgress" value="0" max="100"></progress>
+                </div>
                 <div id="controlContainer">
                     <div id="controlButtons">
                         <button id="addNode" class="controlButton">Add Node</button>
-                        <button id="sendPacket" class="controlButton">Send Packet</button>
-                        <button id="quickPacket" class="controlButton">Quick Packet</button>
+                        <button id="sendPacket" class="controlButton">Send Flood Packet</button>
+                        <button id="quickPacket" class="controlButton">Quick Flood Packet</button>
                         <button id="resetTTLColors" class="controlButton">Reset TTL Colors</button>
-                        <button id="createRandomGraph" class="controlButton">Create Random Network</button>
-                    </div>
-                    <div id="simToggles">
-                        <input type="checkbox" id="showRanges" class="simToggle">
-                        <label for="showRanges">Show Ranges</label>
-                        <input type="checkbox" id="showTTL" class="simToggle" checked>
-                        <label for="showTTL">Show TTL Colors</label>
-                        <input type="checkbox" id="quickPlace" class="simToggle">
-                        <label for="quickPlace">Quick Place</label>
+                        <button id="createRoutingTables" class="controlButton">Create Routing Tables</button>
+                        <button id="createRandomGraph" class="controlButton">Create Network</button>
                     </div>
                 </div>
             </div>
@@ -78,7 +92,10 @@
                 <div id="randomGraphModalContent">
                     <label for="randomGraphNodes">Number of Nodes</label>
                     <input type="number" id="randomGraphNodes" value="10" autocomplete="off">
-                    <button id="createRandomGraphConfirm" class="controlButton">Create</button>
+                    <div id="randomGraphModalButtons" style="display: flex; flex-direction: row; gap: 10px; justify-content: end; align-items: center;">
+                        <button id="createRandomGraphCancel" class="controlButton" onclick="document.getElementById('randomGraphModal').style.display = 'none';">Cancel</button>
+                        <button id="createRandomGraphConfirm" class="controlButton">Create</button>
+                    </div>
                 </div>
             </div>
             <div id="warningModal">
@@ -86,6 +103,12 @@
                     <p id="warningModalMessage"></p>
                     <div id="warningModalCustomContent"></div>
                     <button id="warningModalConfirm" class="controlButton" onclick="document.getElementById('warningModal').style.display = 'none';">OK</button>
+                </div>
+            </div>
+            <div id="successModal">
+                <div id="successModalContent">
+                    <p id="successModalMessage"></p>
+                    <button id="successModalConfirm" class="controlButton" onclick="document.getElementById('successModal').style.display = 'none';">OK</button>
                 </div>
             </div>
         </div>

@@ -52,7 +52,7 @@ html, body {
     position: absolute;
     border: 1px solid black;
     border-radius: 50%;
-    z-index: 1000;
+    z-index: 10;
     opacity: 0.2;
     background-color: red;
     pointer-events: none;
@@ -73,7 +73,7 @@ html, body {
     gap: 10px;
 }
 
-#simpleSettingsContent, #engineSettingsContent, #hardwareConstraintsContent {
+#simpleSettingsContent, #engineSettingsContent, #hardwareConstraintsContent, #visualizationSettingsContent {
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -81,27 +81,37 @@ html, body {
     padding-top: 10px;
 }
 
-#simpleSettings, #hardwareConstraints, #engineSettings {
+#simpleSettings, #hardwareConstraints, #engineSettings, #visualizationSettings {
     margin-bottom: 10px;
 }
 
-#randomGraphModal, #warningModal {
+#randomGraphModal, #warningModal, #successModal {
     display: none;
     position: absolute;
     top: 0%;
     left: 0%;
     transform: translate(0%, 0%);
     background-color: rgba(0, 0, 0, 0.5);
-    padding: 20px;
     border: 1px solid #000;
-    width: 100%;
-    height: 100%;
+    width: 100vw;
+    height: 100vh;
+    z-index: 100;
 }
 
 #warningModalContent {
     padding: 20px;
     background-color: #fff;
     border: 1px solid #ffee00;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+#successModalContent {
+    padding: 20px;
+    background-color: #fff;
+    border: 1px solid #00ff00;
     position: absolute;
     top: 50%;
     left: 50%;
@@ -118,6 +128,79 @@ html, body {
     transform: translate(-50%, -50%);
 }
 
-#createRandomGraphConfirm {
+#createRandomGraphConfirm, #createRandomGraphCancel {
     margin-top: 10px;
+}
+
+#routingProgressContainer {
+    display: none;
+    width: 100%;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+#routingProgress {
+    width: 90%;
+}
+
+#openConsole {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#consoleContainer {
+    position: absolute;
+    bottom: 0px;
+    left: 0px;
+    z-index: 10;
+    width: 100%;
+    height: 10%;
+    background-color: #ffffff;
+    border-top: 1px solid #000000;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding-left: 10px;
+    overflow: hidden;
+}
+
+#consoleInput {
+    width: 100%;
+    height: 100%;
+    background-color: #ffffff;
+    color: #000000;
+    border: none;
+    padding: 10px;
+    box-sizing: border-box;
+}
+
+#consoleInput:focus {
+    outline: none;
+    box-shadow: none;
+    border-color: transparent;
+}
+
+#consoleInputContainer {
+    width: 100%;
+    height: 50%;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: start;
+    gap: 0px;
+}
+
+
+#consoleOutput {
+    width: 100%;
+    height: 50%;
+    background-color: #ffffff;
+    color: #000000;
 }
