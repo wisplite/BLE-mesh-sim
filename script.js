@@ -112,6 +112,7 @@ onEdgeEngine.setArrivalCallback(({ from, to, dot }) => {
     // update color of receiving node for visualization
     nodeTable[to].packetCache.push(dot.id.split('-')[0]);
     var packetId = dot.id.split('-')[0];
+    var originNode = dot.id.split('-')[3];
     ttl--;
     if (document.getElementById('showTTL').checked) {
         nodes.update({id: to, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});        
@@ -121,12 +122,12 @@ onEdgeEngine.setArrivalCallback(({ from, to, dot }) => {
     if (ttl > 0) {
         const neighborsSnapshot = nodeTable[to].outgoing.slice();
         for (let neighbor of neighborsSnapshot) {
-            if (neighbor === from) {
+            if (neighbor === from || neighbor === originNode) {
                 continue;
             }
             var packetShift = generateRealisticLabel();
             var movingNode = {
-                id: `${packetId}-${packetShift}-${ttl}`,
+                id: `${packetId}-${packetShift}-${ttl}-${originNode}`,
                 label: packetId + `-${ttl}`,
                 shape: dot.shape,
                 size: dot.size,
@@ -143,6 +144,45 @@ onEdgeEngine.setArrivalCallback(({ from, to, dot }) => {
         }
     }
 });
+
+function quickPacket(startNode, packetInfo, fromNode) {
+    const packetId = packetInfo.split('-')[0];
+    const ttlStart = parseInt(packetInfo.split('-')[2]);
+    const originNode = packetInfo.split('-')[3];
+
+    const queue = [{ nodeId: startNode, ttl: ttlStart, from: fromNode }];
+
+    while (queue.length > 0) {
+        const { nodeId, ttl, from } = queue.shift();
+
+        if (ttl < 0) {
+            markNeighborsAsFailed(nodeId, from, packetId);
+            continue;
+        }
+        if (nodeTable[nodeId]?.packetCache?.includes(packetId)) {
+            continue;
+        }
+
+        nodeTable[nodeId].packetCache.push(packetId);
+
+        if (document.getElementById('showTTL').checked) {
+            nodes.update({id: nodeId, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
+            edges.update({id: `${from}->${nodeId}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
+        } else {
+            nodes.update({id: nodeId, color: {background: '#97c2fc'}});
+            edges.update({id: `${from}->${nodeId}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
+        }
+
+        const neighborsSnapshot = (nodeTable[nodeId]?.outgoing?.slice()) || [];
+
+        for (let neighbor of neighborsSnapshot) {
+            if (neighbor === originNode || neighbor === from) {
+                continue;
+            }
+            queue.push({ nodeId: neighbor, ttl: ttl - 1, from: nodeId });
+        }
+    }
+}
 
 const markNeighborsAsFailed = (nodeId, from, packetId, visited = new Set()) => {
     if (visited.has(nodeId)) {
@@ -435,7 +475,9 @@ function onNodeAdd() {
         document.getElementById('warningModal').style.display = 'block';
         document.getElementById('warningModalMessage').innerHTML = 'Large network detected; simulation speed will be reduced.';
         document.getElementById('warningModalCustomContent').innerHTML = `<details><summary>What does this mean?</summary>
-        <p>The simulation, by default, computes every node's connections 100 'times' per second. Due to the size of this network, this could cause the browser to freeze. To prevent this, the update interval (found in engine settings) is now locked to a multiple of the number of nodes. Additionally, when computing which nodes weren't reached after a packet is sent, the simulation will now walk through the network in steps rather than computing everything at once.</p>`;
+        <p>The simulation, by default, computes every node's connections 100 'times' per second. Due to the size of this network, this could cause the browser to freeze. To prevent this, the update interval (found in engine settings) is now locked to a multiple of the number of nodes. Additionally, when computing which nodes weren't reached after a packet is sent, the simulation will now walk through the network in steps rather than computing everything at once.</p>
+        <br>
+        <p>You may also want to consider using the quick packet feature, which will compute the packet propagation instantly rather than animating it. The animated nodes can cause lots of performance issues, especially on non-Chromium browsers.</p>`;
         document.getElementById('updateInterval').disabled = true;
         document.getElementById('updateInterval').value = nodeLength*2;
         UPDATE_INTERVAL = nodeLength*2;
@@ -490,7 +532,7 @@ document.getElementById('sendPacket').addEventListener('click', function() {
     nodes.update({id: selectedNode, color: {background: '#97c2fc'}});
     for (let connection of nodeTable[selectedNode].outgoing) {
         var movingNode = {
-            id: `${packetId}-${packetShift}-${ttl}`,
+            id: `${packetId}-${packetShift}-${ttl}-${selectedNode}`,
             label: packetId + `-${ttl}`,
             shape: 'dot',
             size: 6,
@@ -592,6 +634,16 @@ document.getElementById('darkMode').addEventListener('change', function() {
         document.getElementById('styleSheet').href = 'style.css';
         localStorage.setItem('darkMode', 'false');
     }
+});
+
+document.getElementById('quickPacket').addEventListener('click', async function() {
+    if (selectedNode == null) {
+        return;
+    }
+    const packetId = generateRealisticLabel();
+    var packetShift = generateRealisticLabel();
+    let ttl = TTL;
+    quickPacket(selectedNode, `${packetId}-${packetShift}-${ttl}-${selectedNode}`, selectedNode);
 });
 
 window.onload = function() {
