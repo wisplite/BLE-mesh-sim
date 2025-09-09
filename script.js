@@ -7,6 +7,7 @@ var warningModalShown = false;
 var displayWarningWhenDone = false;
 var stillRouting = false;
 var markNeighborInterval = null;
+var showGrid = false;
 // Track all active intervals for marking neighbors, and a cancel flag
 var markNeighborIntervals = new Set();
 var cancelMarkNeighborRequested = false;
@@ -531,7 +532,9 @@ document.getElementById('addNode').addEventListener('click', function() {
 
 network.on('click', function(properties) {
     if (properties.nodes.length > 0) {
-        return;
+        selectedNode = properties.nodes[0];
+    } else {
+        selectedNode = null;
     }
     if (document.getElementById('quickPlace').checked) {
         const nodeId = generateRealisticLabel();
@@ -543,6 +546,7 @@ network.on('click', function(properties) {
 
 network.on('doubleClick', function(properties) {
     if (document.getElementById('quickPlace').checked) {
+        selectedNode = null;
         return;
     }
     if (properties.nodes.length > 0) {
@@ -554,6 +558,57 @@ network.on('doubleClick', function(properties) {
     nodeTable[nodeId] = {'connections': [], 'packetCache': [], 'routingTable': {}};
     onNodeAdd();
 });
+
+network.on('beforeDrawing', function(ctx) {
+    if (showGrid) {
+        drawGrid(ctx);
+    }
+    if (selectedNode) {
+        drawRange(ctx);
+    }
+});
+
+function drawGrid(ctx) {
+    ctx.strokeStyle = '#878787';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const scale = network.getScale();
+    const gridSize = CONNECTION_DISTANCE;
+    
+    // Get the visible area bounds
+    const viewPosition = network.getViewPosition();
+    const canvasElement = network.canvas.frame.canvas;
+    const canvasWidth = canvasElement.width;
+    const canvasHeight = canvasElement.height;
+    
+    // Calculate grid bounds based on view position and scale
+    const startX = Math.floor((viewPosition.x - canvasWidth / (2 * scale)) / gridSize) * gridSize;
+    const endX = Math.ceil((viewPosition.x + canvasWidth / (2 * scale)) / gridSize) * gridSize;
+    const startY = Math.floor((viewPosition.y - canvasHeight / (2 * scale)) / gridSize) * gridSize;
+    const endY = Math.ceil((viewPosition.y + canvasHeight / (2 * scale)) / gridSize) * gridSize;
+    
+    // Draw vertical lines
+    for (let x = startX; x <= endX; x += gridSize) {
+        ctx.moveTo(x, startY);
+        ctx.lineTo(x, endY);
+    }
+    
+    // Draw horizontal lines
+    for (let y = startY; y <= endY; y += gridSize) {
+        ctx.moveTo(startX, y);
+        ctx.lineTo(endX, y);
+    }
+    ctx.stroke();
+}
+
+function drawRange(ctx) {
+    ctx.strokeStyle = '#878787';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const position = network.getPosition(selectedNode);
+    ctx.arc(position.x, position.y, CONNECTION_DISTANCE, 0, 2 * Math.PI);
+    ctx.stroke();
+}
 
 document.getElementById('sendPacket').addEventListener('click', function() {
     if (selectedNode == null) {
@@ -833,6 +888,11 @@ document.getElementById('cancelMarkNeighbor').addEventListener('click', function
         markNeighborIntervals.delete(id);
     }
     document.getElementById('cancelMarkNeighbor').style.display = 'none';
+});
+
+document.getElementById('showGrid').addEventListener('change', function() {
+    showGrid = this.checked;
+    network.redraw();
 });
 
 function consoleLog(message) {
