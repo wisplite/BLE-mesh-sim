@@ -101,10 +101,10 @@ var forwardTable = {};
 var onEdgeEngine = new CompleteNodeOnEdgeEngine(network, nodes, dotNodes, edges, forwardTable);
 onEdgeEngine.createEdgesTable();
 onEdgeEngine.initMovement();
-onEdgeEngine.setArrivalCallback(({ from, to, dot }) => {
+onEdgeEngine.setArrivalCallback(async ({ from, to, dot }) => {
     var ttl = parseInt(dot.id.split('-')[2]); 
     if (stillRouting) {
-        routePacket(to, dot.id.split('-')[3], dot.id);
+        await routePacket(to, dot.id.split('-')[4], dot.id);
         return;
     }
     if (document.getElementById('showTTL').checked) {
@@ -233,7 +233,24 @@ function quickRoute(startNode, packetInfo, fromNode) {
     }
 }
 
-function routePacket(currentNode, goalNode, packetInfo, first=false) {
+async function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}  
+
+async function routePacket(currentNode, goalNode, packetInfo, first=false) {
+    if (!nodeTable[currentNode]) {
+        consoleLog(`Node ${currentNode} not found. Dropping packet.`);
+        return;
+    }
+    if (!nodeTable[goalNode]) {
+        consoleLog(`Node ${goalNode} not found. Dropping packet.`);
+        return;
+    }
+    if (nodeTable[currentNode].emergencyIncoming.length > 0) {
+        nodeTable[currentNode].emergencyIncoming = []
+        nodeTable[packetInfo.split('-')[3]].emergencyOutgoing = []
+        edges.remove({'id': `${packetInfo.split('-')[3]}->${currentNode}`})
+    }
     stillRouting = true;
     const packetId = packetInfo.split('-')[0];
     var packetShift = generateRealisticLabel();
@@ -260,10 +277,22 @@ function routePacket(currentNode, goalNode, packetInfo, first=false) {
         }
     }
     ttl--;
-    const nextNode = nodeTable[currentNode].routingTable[goalNode];
+    let nextNode = nodeTable[currentNode].routingTable[goalNode];
+    if (!nodeTable[currentNode].outgoing.includes(nextNode) && nodeTable[currentNode].emergencyOutgoing.length == 0 && nodeTable[nextNode].emergencyIncoming.length == 0) {
+        // use emergency connection slot
+        nodeTable[currentNode].emergencyOutgoing.push(nextNode);
+        nodeTable[nextNode].emergencyIncoming.push(currentNode);
+        await sleep(1000);
+        connectNodes(currentNode, nextNode);
+    } else if (nodeTable[currentNode].emergencyOutgoing.length != 0 || nodeTable[nextNode].emergencyIncoming.length != 0) {
+        consoleLog(`Couldn't connect to ${nextNode}. Dropping packet.`);
+        console.log(nodeTable[currentNode])
+        stillRouting = false;
+        return;
+    }
     if (nextNode) {
         var movingNode = {
-            id: `${packetId}-${packetShift}-${ttl}-${goalNode}`,
+            id: `${packetId}-${packetShift}-${ttl}-${currentNode}-${goalNode}`,
             label: packetId + `-${ttl}`,
             shape: 'dot',
             size: 10,
@@ -274,9 +303,14 @@ function routePacket(currentNode, goalNode, packetInfo, first=false) {
             font: {color: document.getElementById('darkMode').checked ? '#e0e0e0' : '#000'}
         };
         onEdgeEngine.createDotNode(movingNode, currentNode, nextNode);
+        if (document.getElementById('showTTL').checked) {
+            edges.update({id: `${currentNode}->${nextNode}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
+        } else {
+            edges.update({id: `${currentNode}->${nextNode}`, color: {color: 'yellow', highlight: 'yellow'}});
+        }
     } else {
-        consoleLog(`No route found from ${currentNode} to ${goalNode}. Dropping packet.`);
-        console.log(nodeTable[currentNode].routingTable);
+        consoleLog(`No route found from ${currentNode} to ${goalNode} via ${nextNode}. Dropping packet.`);
+        console.log(nodeTable[currentNode].routingTable)
         stillRouting = false;
     }
 }
@@ -589,7 +623,7 @@ function onNodeAdd() {
 document.getElementById('addNode').addEventListener('click', function() {
     const nodeId = generateRealisticLabel();
     nodes.add({id: nodeId, label: nodeId});
-    nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'packetCache': [], 'routingTable': {}};
+    nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'emergencyIncoming': [], 'emergencyOutgoing': [], 'packetCache': [], 'routingTable': {}};
     onNodeAdd();
 });
 
@@ -600,7 +634,7 @@ network.on('click', function(properties) {
     if (document.getElementById('quickPlace').checked) {
         const nodeId = generateRealisticLabel();
         nodes.add({id: nodeId, label: nodeId, x: properties.pointer.canvas.x, y: properties.pointer.canvas.y});
-        nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'packetCache': [], 'routingTable': {}};
+        nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'emergencyIncoming': [], 'emergencyOutgoing': [], 'packetCache': [], 'routingTable': {}};
         onNodeAdd();
     }
 });
@@ -615,7 +649,7 @@ network.on('doubleClick', function(properties) {
     }
     const nodeId = generateRealisticLabel();
     nodes.add({id: nodeId, label: nodeId, x: properties.pointer.canvas.x, y: properties.pointer.canvas.y});
-    nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'packetCache': [], 'routingTable': {}};
+    nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'emergencyIncoming': [], 'emergencyOutgoing': [], 'packetCache': [], 'routingTable': {}};
     onNodeAdd();
 });
 
@@ -706,7 +740,7 @@ document.getElementById('createRandomGraphConfirm').addEventListener('click', fu
     const interval = setInterval(() => {
         const nodeId = generateRealisticLabel();
         nodes.add({id: nodeId, label: nodeId, x: Math.random() * 1000, y: Math.random() * 1000});
-        nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'packetCache': [], 'routingTable': {}};
+        nodeTable[nodeId] = {'incoming': [], 'outgoing': [], 'emergencyIncoming': [], 'emergencyOutgoing': [], 'packetCache': [], 'routingTable': {}};
         onNodeAdd();
         nodeCounter++;
         if (nodeCounter >= nodeCount) {
@@ -811,7 +845,7 @@ window.onload = function() {
     let consoleInputHistory = [];
     let consoleInputHistoryIndex = 0;
     // Handle Enter key for command execution
-    consoleInput.addEventListener('keypress', function(event) {
+    consoleInput.addEventListener('keypress', async function(event) {
         if (event.key === 'Enter') {
             const command = consoleInput.value.trim();
             if (command) { // Only add non-empty commands to history
@@ -842,10 +876,10 @@ window.onload = function() {
                         break;
                     }
                     document.getElementById('resetTTLColors').click();
-                    const packetInfo = `${generateRealisticLabel()}-${generateRealisticLabel()}-${TTL}-${args.split('->')[1]}`;
+                    const packetInfo = `${generateRealisticLabel()}-${generateRealisticLabel()}-${TTL}-${args.split('->')[0]}-${args.split('->')[1]}`;
                     nodes.update({id: args.split('->')[0], color: {background: '#ff00d9'}});
                     nodes.update({id: args.split('->')[1], color: {background: '#ff00d9'}});
-                    routePacket(args.split('->')[0], args.split('->')[1], packetInfo, true);
+                    await routePacket(args.split('->')[0], args.split('->')[1], packetInfo, true);
                     break;
                 case 'exit':
                     document.getElementById('consoleContainer').style.display = 'none';
