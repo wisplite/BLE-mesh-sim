@@ -2,8 +2,7 @@ var UPDATE_INTERVAL = 10;
 var CONNECTION_DISTANCE = 250;
 var DROP_PENALTY = 1.2;
 var TTL = 5;
-var MAX_OUTGOING_CONNECTIONS = 3;
-var MAX_INCOMING_CONNECTIONS = 3;
+var MAX_CONNECTIONS = 6;
 var warningModalShown = false;
 var displayWarningWhenDone = false;
 var stillRouting = false;
@@ -109,8 +108,10 @@ onEdgeEngine.setArrivalCallback(async ({ from, to, dot }) => {
     }
     if (document.getElementById('showTTL').checked) {
         edges.update({id: `${from}->${to}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1)}});
+        edges.update({id: `${to}->${from}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1)}});
     } else {
         edges.update({id: `${from}->${to}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
+        edges.update({id: `${to}->${from}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
     }
     if (nodeTable[to].packetCache.includes(dot.id.split('-')[0])) {
         return;
@@ -126,7 +127,7 @@ onEdgeEngine.setArrivalCallback(async ({ from, to, dot }) => {
         nodes.update({id: to, color: {background: '#97c2fc'}});
     }
     if (ttl > 0) {
-        const neighborsSnapshot = nodeTable[to].outgoing.slice();
+        const neighborsSnapshot = nodeTable[to].connections.slice();
         for (let neighbor of neighborsSnapshot) {
             if (neighbor === from || neighbor === originNode) {
                 continue;
@@ -174,12 +175,14 @@ function quickPacket(startNode, packetInfo, fromNode) {
         if (document.getElementById('showTTL').checked) {
             nodes.update({id: nodeId, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
             edges.update({id: `${from}->${nodeId}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
+            edges.update({id: `${nodeId}->${from}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
         } else {
             nodes.update({id: nodeId, color: {background: '#97c2fc'}});
             edges.update({id: `${from}->${nodeId}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
+            edges.update({id: `${nodeId}->${from}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
         }
 
-        const neighborsSnapshot = (nodeTable[nodeId]?.outgoing?.slice()) || [];
+        const neighborsSnapshot = (nodeTable[nodeId]?.connections?.slice()) || [];
 
         for (let neighbor of neighborsSnapshot) {
             if (neighbor === originNode || neighbor === from) {
@@ -217,12 +220,14 @@ function quickRoute(startNode, packetInfo, fromNode) {
         if (document.getElementById('showTTL').checked) {
             nodes.update({id: nodeId, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
             edges.update({id: `${from}->${nodeId}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
+            edges.update({id: `${nodeId}->${from}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
         } else {
             nodes.update({id: nodeId, color: {background: '#97c2fc'}});
             edges.update({id: `${from}->${nodeId}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
+            edges.update({id: `${nodeId}->${from}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
         }
 
-        const neighborsSnapshot = (nodeTable[nodeId]?.outgoing?.slice()) || [];
+        const neighborsSnapshot = (nodeTable[nodeId]?.connections?.slice()) || [];
 
         for (let neighbor of neighborsSnapshot) {
             if (neighbor === originNode || neighbor === from) {
@@ -245,11 +250,6 @@ async function routePacket(currentNode, goalNode, packetInfo, first=false) {
     if (!nodeTable[goalNode]) {
         consoleLog(`Node ${goalNode} not found. Dropping packet.`);
         return;
-    }
-    if (nodeTable[currentNode].emergencyIncoming.length > 0) {
-        nodeTable[currentNode].emergencyIncoming = []
-        nodeTable[packetInfo.split('-')[3]].emergencyOutgoing = []
-        edges.remove({'id': `${packetInfo.split('-')[3]}->${currentNode}`})
     }
     stillRouting = true;
     const packetId = packetInfo.split('-')[0];
@@ -278,15 +278,8 @@ async function routePacket(currentNode, goalNode, packetInfo, first=false) {
     }
     ttl--;
     let nextNode = nodeTable[currentNode].routingTable[goalNode];
-    if (!nodeTable[currentNode].outgoing.includes(nextNode) && nodeTable[currentNode].emergencyOutgoing.length == 0 && nodeTable[nextNode].emergencyIncoming.length == 0) {
-        // use emergency connection slot
-        nodeTable[currentNode].emergencyOutgoing.push(nextNode);
-        nodeTable[nextNode].emergencyIncoming.push(currentNode);
-        await sleep(1000);
-        connectNodes(currentNode, nextNode);
-    } else if (nodeTable[currentNode].emergencyOutgoing.length != 0 || nodeTable[nextNode].emergencyIncoming.length != 0) {
-        consoleLog(`Couldn't connect to ${nextNode}. Dropping packet.`);
-        console.log(nodeTable[currentNode])
+    if (!nodeTable[currentNode].connections.includes(nextNode)) {
+        consoleLog(`No route found from ${currentNode} to ${goalNode}. Dropping packet.`);
         stillRouting = false;
         return;
     }
@@ -305,8 +298,10 @@ async function routePacket(currentNode, goalNode, packetInfo, first=false) {
         onEdgeEngine.createDotNode(movingNode, currentNode, nextNode);
         if (document.getElementById('showTTL').checked) {
             edges.update({id: `${currentNode}->${nextNode}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
+            edges.update({id: `${nextNode}->${currentNode}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
         } else {
             edges.update({id: `${currentNode}->${nextNode}`, color: {color: 'yellow', highlight: 'yellow'}});
+            edges.update({id: `${nextNode}->${currentNode}`, color: {color: 'yellow', highlight: 'yellow'}});
         }
     } else {
         consoleLog(`No route found from ${currentNode} to ${goalNode} via ${nextNode}. Dropping packet.`);
@@ -323,7 +318,7 @@ const markNeighborsAsFailed = (nodeId, from, packetId, visited = new Set()) => {
 
     if (warningModalShown) {
         // enable walkthrough mode to prevent browser from freezing
-        const neighborsSnapshot = (nodeTable[nodeId]?.outgoing?.slice()) || [];
+        const neighborsSnapshot = (nodeTable[nodeId]?.connections?.slice()) || [];
         const neighborsLength = neighborsSnapshot.length;
         let currentIdx = 0;
         const intervalId = setInterval(() => {
@@ -334,6 +329,7 @@ const markNeighborsAsFailed = (nodeId, from, packetId, visited = new Set()) => {
                     neighbor !== from) {
                     nodes.update({id: neighbor, color: {background: 'white'}});
                     edges.update({id: `${nodeId}->${neighbor}`, color: {color: 'white', highlight: '#97c2fc'}});
+                    edges.update({id: `${neighbor}->${nodeId}`, color: {color: 'white', highlight: '#97c2fc'}});
                     markNeighborsAsFailed(neighbor, nodeId, packetId, visited);
                 }
                 currentIdx++;
@@ -344,7 +340,7 @@ const markNeighborsAsFailed = (nodeId, from, packetId, visited = new Set()) => {
         return;
     }
 
-    const neighborsSnapshot = (nodeTable[nodeId]?.outgoing?.slice()) || [];
+    const neighborsSnapshot = (nodeTable[nodeId]?.connections?.slice()) || [];
     for (let neighbor of neighborsSnapshot) {
         if (visited.has(neighbor)) {
             continue;
@@ -357,37 +353,27 @@ const markNeighborsAsFailed = (nodeId, from, packetId, visited = new Set()) => {
         }
         nodes.update({id: neighbor, color: {background: 'white'}});
         edges.update({id: `${nodeId}->${neighbor}`, color: {color: 'white', highlight: '#97c2fc'}});
+        edges.update({id: `${neighbor}->${nodeId}`, color: {color: 'white', highlight: '#97c2fc'}});
         markNeighborsAsFailed(neighbor, nodeId, packetId, visited);
     }
 }
 
 function nodeSelectUpdateHandler(properties) {
     // get containers
-    const incomingTable = document.getElementById('incomingConnections');
-    const outgoingTable = document.getElementById('outgoingConnections');
+    const connectionsTable = document.getElementById('connections');
     
     // clear containers
-    let connectionElements = incomingTable.querySelectorAll('.connectionElement');
-    for (let connection of connectionElements) {
-        connection.remove();
-    }
-    connectionElements = outgoingTable.querySelectorAll('.connectionElement');
+    let connectionElements = connectionsTable.querySelectorAll('.connectionElement');
     for (let connection of connectionElements) {
         connection.remove();
     }
 
     try {
-        for (let connection of nodeTable[properties.nodes[0]].outgoing) {
+        for (let connection of nodeTable[properties.nodes[0]].connections) {
             const connectionElement = document.createElement('div');
             connectionElement.classList.add('connectionElement');
             connectionElement.innerHTML = connection;
-            outgoingTable.appendChild(connectionElement);
-        }
-        for (let connection of nodeTable[properties.nodes[0]].incoming) {
-            const connectionElement = document.createElement('div');
-            connectionElement.classList.add('connectionElement');
-            connectionElement.innerHTML = connection;
-            incomingTable.appendChild(connectionElement);
+            connectionsTable.appendChild(connectionElement);
         }
     } catch (error) {
         return;
@@ -511,13 +497,14 @@ function main() {
                     neighbors.push({'node': node2, 'distance': distanceToRSSI(distance), });
                 } else {
                     edges.remove(`${node1}->${node2}`);
-                    const outIdx = nodeTable[node1].outgoing.indexOf(node2);
-                    if (outIdx !== -1) {
-                        nodeTable[node1].outgoing.splice(outIdx, 1);
+                    edges.remove(`${node2}->${node1}`);
+                    const node1Idx = nodeTable[node1].connections.indexOf(node2);
+                    if (node1Idx !== -1) {
+                        nodeTable[node1].connections.splice(node1Idx, 1);
                     }
-                    const inIdx = nodeTable[node2].incoming.indexOf(node1);
-                    if (inIdx !== -1) {
-                        nodeTable[node2].incoming.splice(inIdx, 1);
+                    const node2Idx = nodeTable[node2].connections.indexOf(node1);
+                    if (node2Idx !== -1) {
+                        nodeTable[node2].connections.splice(node2Idx, 1);
                     }
                 }
             }
@@ -530,14 +517,14 @@ function main() {
             let connectionScore = 0;
             let dropScore = 0;
             connectionScore += (100 + neighbor.distance);
-            connectionScore += 100 / (nodeTable[neighbor.node].incoming.length + 1);
-            if (nodeTable[neighbor.node].incoming.length == 0) {
+            connectionScore += 100 / (nodeTable[neighbor.node].connections.length + 1);
+            if (nodeTable[neighbor.node].connections.length == 0) {
                 connectionScore += 10000;
             }
-            if (nodeTable[neighbor.node].incoming.length >= MAX_INCOMING_CONNECTIONS) {
+            if (nodeTable[neighbor.node].connections.length >= MAX_CONNECTIONS) {
                 continue;
             }
-            if (nodeTable[node1].outgoing.includes(neighbor.node)) {
+            if (nodeTable[node1].connections.includes(neighbor.node)) {
                 dropScore = connectionScore;
             }
             scores.push({'node': neighbor.node, 'score': connectionScore, 'dropScore': dropScore});
@@ -546,13 +533,13 @@ function main() {
         const neighborMap = new Map(neighbors.map(n => [n.node, n]));
         const top3 = scores.slice(0, 3);
         for (let score of top3) {
-            if (nodeTable[node1].outgoing.length >= MAX_OUTGOING_CONNECTIONS) {
+            if (nodeTable[node1].connections.length >= MAX_CONNECTIONS) {
                 let dropped = false;
-                if (nodeTable[node1].outgoing.includes(score.node)) {
-                    //console.log(`${score.node} is already in outgoing; skipping drop attempt`);
+                if (nodeTable[node1].connections.includes(score.node)) {
+                    //console.log(`${score.node} is already connected; skipping drop attempt`);
                     continue;
                 }
-                for (let existingNode of [...nodeTable[node1].outgoing]) {
+                for (let existingNode of [...nodeTable[node1].connections]) {
                     const neighborInfo = neighborMap.get(existingNode);
                     if (!neighborInfo) {
                         //console.log(`${existingNode} not a neighbor; skipping`);
@@ -560,21 +547,22 @@ function main() {
                     }
                     let existingScore = 0;
                     existingScore += (100 + neighborInfo.distance);
-                    existingScore += 100 / (nodeTable[existingNode].incoming.length + 1);
-                    if (nodeTable[existingNode].incoming.length == 0) {
+                    existingScore += 100 / (nodeTable[existingNode].connections.length + 1);
+                    if (nodeTable[existingNode].connections.length == 0) {
                         existingScore += 10000;
                     }
                     if (existingScore * DROP_PENALTY < score.score) {
                         //console.log(`Dropping ${existingNode} from ${node1} for better ${score.node}`);
-                        const outIdx = nodeTable[node1].outgoing.indexOf(existingNode);
-                        if (outIdx !== -1) {
-                            nodeTable[node1].outgoing.splice(outIdx, 1);
+                        const node1Idx = nodeTable[node1].connections.indexOf(existingNode);
+                        if (node1Idx !== -1) {
+                            nodeTable[node1].connections.splice(node1Idx, 1);
                         }
-                        const inIdx = nodeTable[existingNode].incoming.indexOf(node1);
-                        if (inIdx !== -1) {
-                            nodeTable[existingNode].incoming.splice(inIdx, 1);
+                        const node2Idx = nodeTable[existingNode].connections.indexOf(node1);
+                        if (node2Idx !== -1) {
+                            nodeTable[existingNode].connections.splice(node2Idx, 1);
                         }
                         edges.remove(`${node1}->${existingNode}`);
+                        edges.remove(`${existingNode}->${node1}`);
                         dropped = true;
                         break;
                     } else {
@@ -583,15 +571,15 @@ function main() {
                     }
                 }
                 // still at capacity and nothing was dropped — skip adding this candidate
-                if (nodeTable[node1].outgoing.length >= MAX_OUTGOING_CONNECTIONS && !dropped) {
+                if (nodeTable[node1].connections.length >= MAX_CONNECTIONS && !dropped) {
                     continue;
                 }
             }
-            if (nodeTable[node1].outgoing.includes(score.node) || nodeTable[score.node].incoming.includes(node1)) {
+            if (nodeTable[node1].connections.includes(score.node) || nodeTable[score.node].connections.includes(node1)) {
                 continue;
             }
-            nodeTable[node1].outgoing.push(score.node);
-            nodeTable[score.node].incoming.push(node1);
+            nodeTable[node1].connections.push(score.node);
+            nodeTable[score.node].connections.push(node1);
             connectNodes(node1, score.node);
         }
     }
@@ -623,7 +611,7 @@ function onNodeAdd() {
 document.getElementById('addNode').addEventListener('click', function() {
     const nodeId = generateRealisticLabel();
     nodes.add({id: nodeId, label: nodeId});
-    nodeTable[nodeId] = {'connected_nodes': [], 'packetCache': [], 'routingTable': {}};
+    nodeTable[nodeId] = {'connections': [], 'packetCache': [], 'routingTable': {}};
     onNodeAdd();
 });
 
@@ -634,7 +622,7 @@ network.on('click', function(properties) {
     if (document.getElementById('quickPlace').checked) {
         const nodeId = generateRealisticLabel();
         nodes.add({id: nodeId, label: nodeId, x: properties.pointer.canvas.x, y: properties.pointer.canvas.y});
-        nodeTable[nodeId] = {'connected_nodes': [], 'packetCache': [], 'routingTable': {}};
+        nodeTable[nodeId] = {'connections': [], 'packetCache': [], 'routingTable': {}};
         onNodeAdd();
     }
 });
@@ -649,7 +637,7 @@ network.on('doubleClick', function(properties) {
     }
     const nodeId = generateRealisticLabel();
     nodes.add({id: nodeId, label: nodeId, x: properties.pointer.canvas.x, y: properties.pointer.canvas.y});
-    nodeTable[nodeId] = {'connected_nodes': [], 'packetCache': [], 'routingTable': {}};
+    nodeTable[nodeId] = {'connections': [], 'packetCache': [], 'routingTable': {}};
     onNodeAdd();
 });
 
@@ -662,7 +650,7 @@ document.getElementById('sendPacket').addEventListener('click', function() {
     var packetShift = generateRealisticLabel();
     let ttl = TTL;
     nodes.update({id: selectedNode, color: {background: '#97c2fc'}});
-    for (let connection of nodeTable[selectedNode].outgoing) {
+    for (let connection of nodeTable[selectedNode].connections) {
         var movingNode = {
             id: `${packetId}-${packetShift}-${ttl}-${selectedNode}`,
             label: packetId + `-${ttl}`,
@@ -716,12 +704,8 @@ document.getElementById('ttl').addEventListener('change', function() {
     TTL = parseInt(this.value);
 });
 
-document.getElementById('maxOutgoingConnections').addEventListener('change', function() {
-    MAX_OUTGOING_CONNECTIONS = parseInt(this.value);
-});
-
-document.getElementById('maxIncomingConnections').addEventListener('change', function() {
-    MAX_INCOMING_CONNECTIONS = parseInt(this.value);
+document.getElementById('maxConnections').addEventListener('change', function() {
+    MAX_CONNECTIONS = parseInt(this.value);
 });
 
 document.getElementById('createRandomGraph').addEventListener('click', function() {
@@ -740,7 +724,7 @@ document.getElementById('createRandomGraphConfirm').addEventListener('click', fu
     const interval = setInterval(() => {
         const nodeId = generateRealisticLabel();
         nodes.add({id: nodeId, label: nodeId, x: Math.random() * 1000, y: Math.random() * 1000});
-        nodeTable[nodeId] = {'connected_nodes': [], 'packetCache': [], 'routingTable': {}};
+        nodeTable[nodeId] = {'connections': [], 'packetCache': [], 'routingTable': {}};
         onNodeAdd();
         nodeCounter++;
         if (nodeCounter >= nodeCount) {

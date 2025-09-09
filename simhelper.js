@@ -7,7 +7,7 @@ function calculateDistance(node1, node2) {
 }
 
 function connectNodes(node1, node2) {
-    if (edges.get(`${node1}->${node2}`)) {
+    if (edges.get(`${node1}->${node2}`) || edges.get(`${node2}->${node1}`)) {
         return;
     }
     const edgeId = `${node1}->${node2}`;
@@ -15,7 +15,11 @@ function connectNodes(node1, node2) {
         id: edgeId,
         from: node1,
         to: node2,
-        smooth: { enabled: true, type: 'curvedCW', roundness: 0.1 }
+    });
+    edges.add({
+        id: `${node2}->${node1}`,
+        from: node2,
+        to: node1,
     });
 }
 
