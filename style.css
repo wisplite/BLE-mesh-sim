@@ -204,3 +204,9 @@ html, body {
     background-color: #ffffff;
     color: #000000;
 }
+
+#cancelMarkNeighbor {
+    width: 100%;
+    margin-top: 10px;
+    display: none;
+}

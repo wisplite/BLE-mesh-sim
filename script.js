@@ -6,6 +6,10 @@ var MAX_CONNECTIONS = 6;
 var warningModalShown = false;
 var displayWarningWhenDone = false;
 var stillRouting = false;
+var markNeighborInterval = null;
+// Track all active intervals for marking neighbors, and a cancel flag
+var markNeighborIntervals = new Set();
+var cancelMarkNeighborRequested = false;
 
 function smoothColorTransition(color1, color2, min, max, current) {
     // Clamp current between min and max
@@ -311,6 +315,9 @@ async function routePacket(currentNode, goalNode, packetInfo, first=false) {
 }
 
 const markNeighborsAsFailed = (nodeId, from, packetId, visited = new Set()) => {
+    if (cancelMarkNeighborRequested) {
+        return;
+    }
     if (visited.has(nodeId)) {
         return;
     }
@@ -318,10 +325,22 @@ const markNeighborsAsFailed = (nodeId, from, packetId, visited = new Set()) => {
 
     if (warningModalShown) {
         // enable walkthrough mode to prevent browser from freezing
+        if (markNeighborIntervals.size === 0) {
+            cancelMarkNeighborRequested = false;
+        }
+        document.getElementById('cancelMarkNeighbor').style.display = 'block';
         const neighborsSnapshot = (nodeTable[nodeId]?.connections?.slice()) || [];
         const neighborsLength = neighborsSnapshot.length;
         let currentIdx = 0;
         const intervalId = setInterval(() => {
+            if (cancelMarkNeighborRequested) {
+                clearInterval(intervalId);
+                markNeighborIntervals.delete(intervalId);
+                if (markNeighborIntervals.size === 0) {
+                    document.getElementById('cancelMarkNeighbor').style.display = 'none';
+                }
+                return;
+            }
             if (currentIdx < neighborsLength) {
                 const neighbor = neighborsSnapshot[currentIdx];
                 if (!visited.has(neighbor) && 
@@ -335,8 +354,13 @@ const markNeighborsAsFailed = (nodeId, from, packetId, visited = new Set()) => {
                 currentIdx++;
             } else {
                 clearInterval(intervalId);
+                markNeighborIntervals.delete(intervalId);
+                if (markNeighborIntervals.size === 0) {
+                    document.getElementById('cancelMarkNeighbor').style.display = 'none';
+                }
             }
-        }, 10);
+        }, 1);
+        markNeighborIntervals.add(intervalId);
         return;
     }
 
@@ -905,7 +929,21 @@ window.onload = function() {
     consoleContainer.appendChild(consoleOutput);
 
     document.getElementById('simContainer').appendChild(openConsoleButton);
+
+    // Ensure cancel button is hidden on load
+    document.getElementById('cancelMarkNeighbor').style.display = 'none';
 }
+
+document.getElementById('cancelMarkNeighbor').addEventListener('click', function() {
+    consoleLog('Cancelling mark neighbor...');
+    cancelMarkNeighborRequested = true;
+    // Clear any tracked intervals
+    for (let id of Array.from(markNeighborIntervals)) {
+        clearInterval(id);
+        markNeighborIntervals.delete(id);
+    }
+    document.getElementById('cancelMarkNeighbor').style.display = 'none';
+});
 
 function consoleLog(message) {
     const consoleOutput = document.getElementById('consoleOutput');

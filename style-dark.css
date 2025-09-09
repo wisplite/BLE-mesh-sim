@@ -302,3 +302,9 @@ input[type="checkbox"], input[type="radio"] {
     background-color: #000000;
     color: #e0e0e0;
 }
+
+#cancelMarkNeighbor {
+    width: 100%;
+    margin-top: 10px;
+    display: none;
+}
