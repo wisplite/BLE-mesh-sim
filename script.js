@@ -64,6 +64,8 @@ var edges = new vis.DataSet([
 
 var nodeTable = {};
 
+var grid = new GridIndex(CONNECTION_DISTANCE);
+
 var container = document.getElementById('simContainer');
 
 var data = {
@@ -382,123 +384,11 @@ const markNeighborsAsFailed = (nodeId, from, packetId, visited = new Set()) => {
     }
 }
 
-function nodeSelectUpdateHandler(properties) {
-    // get containers
-    const connectionsTable = document.getElementById('connections');
-    
-    // clear containers
-    let connectionElements = connectionsTable.querySelectorAll('.connectionElement');
-    for (let connection of connectionElements) {
-        connection.remove();
-    }
 
-    try {
-        for (let connection of nodeTable[properties.nodes[0]].connections) {
-            const connectionElement = document.createElement('div');
-            connectionElement.classList.add('connectionElement');
-            connectionElement.innerHTML = connection;
-            connectionsTable.appendChild(connectionElement);
-        }
-    } catch (error) {
-        return;
-    }
+function recomputeNodeConnections(nodeId) {
+    const p = network.getPosition(nodeId);
+    grid.update(nodeId, p.x, p.y);
 }
-
-network.on('selectNode', function(properties) {
-    selectedNode = properties.nodes[0];
-    if (document.getElementById('showRanges').checked) {
-        const centerPoint = network.getPosition(properties.nodes[0]);
-        const centerPointDOM = network.canvasToDOM({x: centerPoint.x, y: centerPoint.y});
-        const edgePointDOM = network.canvasToDOM({x: centerPoint.x + CONNECTION_DISTANCE, y: centerPoint.y});
-        const radius = Math.abs(edgePointDOM.x - centerPointDOM.x);
-        const rangeVis = document.createElement('div');
-        rangeVis.style.position = 'absolute';
-        rangeVis.style.top = (centerPointDOM.y - radius) + 'px';
-        rangeVis.style.left = (centerPointDOM.x - radius) + 'px';
-        rangeVis.style.width = radius * 2 + 'px';
-        rangeVis.style.height = radius * 2 + 'px';
-        rangeVis.classList.add('rangeVis');
-        document.getElementById('simContainer').appendChild(rangeVis);
-    } else {
-        const rangeVis = document.querySelector('.rangeVis');
-        if (rangeVis) {
-            rangeVis.remove();
-        }
-    }
-    nodeSelectUpdateHandler(properties);
-});
-
-network.on('dragging', function(properties) {
-    if (properties.nodes.length > 0) {
-        selectedNode = properties.nodes[0];
-    }
-    if (document.getElementById('showRanges').checked) {
-        if (selectedNode != null) {
-            const centerPoint = network.getPosition(selectedNode);
-            const centerPointDOM = network.canvasToDOM({x: centerPoint.x, y: centerPoint.y});
-            const edgePointDOM = network.canvasToDOM({x: centerPoint.x + CONNECTION_DISTANCE, y: centerPoint.y});
-            const radius = Math.abs(edgePointDOM.x - centerPointDOM.x);
-            const rangeVis = document.querySelector('.rangeVis');
-            if (rangeVis) {
-                rangeVis.style.top = (centerPointDOM.y - radius) + 'px';
-                rangeVis.style.left = (centerPointDOM.x - radius) + 'px';
-                rangeVis.style.width = radius * 2 + 'px';
-                rangeVis.style.height = radius * 2 + 'px';
-            } else {
-                const rangeVis = document.createElement('div');
-                rangeVis.style.position = 'absolute';
-                rangeVis.style.top = (centerPointDOM.y - radius) + 'px';
-                rangeVis.style.left = (centerPointDOM.x - radius) + 'px';
-                rangeVis.style.width = radius * 2 + 'px';
-                rangeVis.style.height = radius * 2 + 'px';
-                rangeVis.classList.add('rangeVis');
-                document.getElementById('simContainer').appendChild(rangeVis);
-            }
-        } else if (properties.nodes.length > 0) {
-            selectedNode = properties.nodes[0];
-            const centerPoint = network.getPosition(selectedNode);
-            const centerPointDOM = network.canvasToDOM({x: centerPoint.x, y: centerPoint.y});
-            const edgePointDOM = network.canvasToDOM({x: centerPoint.x + CONNECTION_DISTANCE, y: centerPoint.y});
-            const radius = Math.abs(edgePointDOM.x - centerPointDOM.x);
-            const rangeVis = document.querySelector('.rangeVis');
-            if (rangeVis) {
-                rangeVis.style.top = (centerPointDOM.y - radius) + 'px';
-                rangeVis.style.left = (centerPointDOM.x - radius) + 'px';
-                rangeVis.style.width = radius * 2 + 'px';
-                rangeVis.style.height = radius * 2 + 'px';
-            }
-        }
-    }
-    nodeSelectUpdateHandler(properties);
-});
-
-network.on('zoom', function(properties) {
-    if (document.getElementById('showRanges').checked) {
-        if (selectedNode) {
-            const centerPoint = network.getPosition(selectedNode);
-            const centerPointDOM = network.canvasToDOM({x: centerPoint.x, y: centerPoint.y});
-            const edgePointDOM = network.canvasToDOM({x: centerPoint.x + CONNECTION_DISTANCE, y: centerPoint.y});
-            const radius = Math.abs(edgePointDOM.x - centerPointDOM.x);
-            const rangeVis = document.querySelector('.rangeVis');
-            if (rangeVis) {
-                rangeVis.style.top = (centerPointDOM.y - radius) + 'px';
-                rangeVis.style.left = (centerPointDOM.x - radius) + 'px';
-                rangeVis.style.width = radius * 2 + 'px';
-                rangeVis.style.height = radius * 2 + 'px';
-            }
-        }
-    }
-    nodeSelectUpdateHandler(properties);
-});
-
-network.on('deselectNode', function(properties) {
-    selectedNode = null;
-    const rangeVis = document.querySelector('.rangeVis');
-    if (rangeVis) {
-        rangeVis.remove();
-    }
-    nodeSelectUpdateHandler(properties);
-});
 
 // main event loop
 function main() {
