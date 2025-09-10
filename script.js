@@ -14,6 +14,9 @@ var markNeighborIntervals = new Set();
 var cancelMarkNeighborRequested = false;
 var markNeighborRafs = new Set();
 
+var nodeUpdateCache = [];
+var edgeUpdateCache = [];
+
 function smoothColorTransition(color1, color2, min, max, current) {
     // Clamp current between min and max
     const clamped = Math.min(Math.max(current, min), max);
@@ -186,7 +189,8 @@ function quickPacketRaf(startNode, packetInfo, fromNode, opts = {}) {
 		while (head < queue.length) {
 			const { nodeId, ttl, from } = queue[head++];
 
-			if (ttl < 0) {
+			if (ttl < 0 && !document.getElementById('showTTL').checked) {
+                // legacy marking
 				if (document.getElementById('showTTL').checked) {
 					markNeighborsAsFailed(nodeId, from, packetId);
 				}
@@ -197,15 +201,24 @@ function quickPacketRaf(startNode, packetInfo, fromNode, opts = {}) {
 			if (!node) continue;
 
             if (document.getElementById('showTTL').checked) {
-                edges.update({id: `${from}->${nodeId}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
-                edges.update({id: `${nodeId}->${from}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
+                if (ttl < 0) {
+                    edgeUpdateCache.push({id: `${from}->${nodeId}`, color: {color: 'white', highlight: 'white'}});
+                    edgeUpdateCache.push({id: `${nodeId}->${from}`, color: {color: 'white', highlight: 'white'}})
+                } else {
+                    edgeUpdateCache.push({id: `${from}->${nodeId}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}})
+                    edgeUpdateCache.push({id: `${nodeId}->${from}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}})
+                }
             }
 
 			const cache = node.packetCache;
 			if (cache && cache.has(packetId)) continue;
 
             if (document.getElementById('showTTL').checked) {
-                nodes.update({id: nodeId, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
+                if (ttl < 0) {
+                    nodeUpdateCache.push({id: nodeId, color: {background: 'white'}})
+                } else {
+                    nodeUpdateCache.push({id: nodeId, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}})
+                }
             }
 
 			cache.add(packetId);
@@ -224,10 +237,18 @@ function quickPacketRaf(startNode, packetInfo, fromNode, opts = {}) {
 				return;
 			}
 		}
+        popUpdateCache();
 	}
 
 	requestAnimationFrame(step);
 	return { cancel: () => { cancelled = true; } };
+}
+
+function popUpdateCache() {
+    nodes.update(nodeUpdateCache);
+    edges.update(edgeUpdateCache);
+    nodeUpdateCache = []
+    edgeUpdateCache = []
 }
 
 // This is a modified version of quickPacket that contains some extra logic to save routing tables.
