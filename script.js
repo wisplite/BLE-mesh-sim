@@ -8,6 +8,7 @@ var displayWarningWhenDone = false;
 var stillRouting = false;
 var markNeighborInterval = null;
 var showGrid = false;
+var showUpdates = false;
 // Track all active intervals for marking neighbors, and a cancel flag
 var markNeighborIntervals = new Set();
 var cancelMarkNeighborRequested = false;
@@ -388,121 +389,145 @@ const markNeighborsAsFailed = (nodeId, from, packetId, visited = new Set()) => {
 
 function recomputeNodeConnections(nodeId) {
     const p = network.getPosition(nodeId);
-    grid.update(nodeId, p.x, p.y);
-}
+    const candidates = grid.getNeighborCandidates(p.x, p.y);
 
-// main event loop
-function main() {
-    const currentNodes = network.getPositions();
-    const currentNodesKeys = Object.keys(currentNodes);
-    for (let node1 of currentNodesKeys) {
-        let neighbors = [];
-        if (!nodeTable[node1]) {
+    // check all nearby nodes against all other nearby nodes
+    for (let a of candidates) {
+        if (!nodeTable[a]) {
             continue;
         }
-        for (let node2 of currentNodesKeys) {
-            if (!nodeTable[node2]) {
-                continue;
+        // in case user drags node too fast, drop far connections
+        for (let connection of nodeTable[a].connections) {
+            const aPos = network.getPosition(a);
+            const bPos = network.getPosition(connection);
+            const distance = calculateDistance(aPos,bPos);
+            if (distance > CONNECTION_DISTANCE) {
+                dropConnection(a,connection);
             }
-            if (node1 !== node2) {
-                const node1data = currentNodes[node1];
-                const node2data = currentNodes[node2];
-                const distance = calculateDistance(node1data, node2data);
-                if (distance < CONNECTION_DISTANCE) {
-                    neighbors.push({'node': node2, 'distance': distanceToRSSI(distance), });
+        }
+        if (showUpdates) {
+            console.log('updating')
+            let lastTime;
+            let fadePerS = 10;
+            let currentFade = 0;
+            let animationId;
+            function animateFlash(time) {
+                if (!lastTime) {
+                    lastTime = time;
+                }
+                const dTs = (time - lastTime) / 1000;
+
+                lastTime = time;
+                const diff = fadePerS * dTs;
+                currentFade += diff;
+                nodes.update({id: a, color: {background: smoothColorTransition('#eb4034', '#97c2fc', 0, 5, currentFade)}})
+
+                if (currentFade < 5) {
+                    animationId = requestAnimationFrame(animateFlash);
                 } else {
-                    edges.remove(`${node1}->${node2}`);
-                    edges.remove(`${node2}->${node1}`);
-                    const node1Idx = nodeTable[node1].connections.indexOf(node2);
-                    if (node1Idx !== -1) {
-                        nodeTable[node1].connections.splice(node1Idx, 1);
-                    }
-                    const node2Idx = nodeTable[node2].connections.indexOf(node1);
-                    if (node2Idx !== -1) {
-                        nodeTable[node2].connections.splice(node2Idx, 1);
-                    }
+                    nodes.update({id: a, color: {background: '#97c2fc'}});
+                    animationId = null;
+                }
+            }
+            animationId = requestAnimationFrame(animateFlash);
+        }
+        let trueNeighbors = []
+        for (let b of candidates) {
+            if (a === b) {
+                continue;
+            }
+            if (!nodeTable[b]) {
+                continue;
+            }
+            const aPos = network.getPosition(a);
+            const bPos = network.getPosition(b);
+            const distance = calculateDistance(aPos,bPos);
+            if (distance < CONNECTION_DISTANCE) {
+                let connectionScore = 0;
+                let dropScore = 0;
+                connectionScore += (100 + distanceToRSSI(distance));
+                connectionScore += 100 / (nodeTable[b].connections.length + 1);
+                if (nodeTable[b].connections.length == 0) {
+                    connectionScore += 100;
+                }
+                if (nodeTable[a].connections.includes(b) && nodeTable[b].connections.length == 1) {
+                    // assume current node is only connection
+                    connectionScore += 1000;
+                }
+                if (nodeTable[a].connections.includes(b)) {
+                    dropScore = connectionScore * DROP_PENALTY;
+                }
+                trueNeighbors.push({'nodeId': b, 'distance': distanceToRSSI(distance), 'score': connectionScore, 'dropScore': dropScore});
+            } else {
+                if (nodeTable[a].connections.includes(b)) {
+                    dropConnection(a,b);
                 }
             }
         }
-        const scores = [];
-        for (let neighbor of neighbors) {
-            if (!nodeTable[neighbor.node]) {
+        trueNeighbors.sort((aS, bS) => bS.score - aS.score);
+        const neighborMap = new Map(trueNeighbors.map(n => [n.nodeId, n]));
+        const topCandidates = trueNeighbors.slice(0, MAX_CONNECTIONS);
+        let toDrop = new Set();
+        let toConnect = new Set();
+        for (let node of topCandidates) {
+            if (nodeTable[node.nodeId].connections.length >= MAX_CONNECTIONS) {
                 continue;
             }
-            let connectionScore = 0;
-            let dropScore = 0;
-            connectionScore += (100 + neighbor.distance);
-            connectionScore += 100 / (nodeTable[neighbor.node].connections.length + 1);
-            if (nodeTable[neighbor.node].connections.length == 0) {
-                connectionScore += 10000;
+            if (nodeTable[a].connections.length >= MAX_CONNECTIONS || (nodeTable[a].connections.length + toConnect.size) >= MAX_CONNECTIONS) {
+                if (nodeTable[a].connections.includes(node.nodeId)) {
+                    continue;
+                }
+                for (let activeConnection of nodeTable[a].connections) {
+                    if (toDrop.has(activeConnection)) {
+                        continue;
+                    }
+                    if (neighborMap.get(activeConnection) && neighborMap.get(activeConnection).dropScore < node.score) {
+                        toDrop.add(activeConnection);
+                        toConnect.add(node.nodeId);
+                    }
+                }
+            } else {
+                toConnect.add(node.nodeId);
             }
-            if (nodeTable[neighbor.node].connections.length >= MAX_CONNECTIONS) {
-                continue;
-            }
-            if (nodeTable[node1].connections.includes(neighbor.node)) {
-                dropScore = connectionScore;
-            }
-            scores.push({'node': neighbor.node, 'score': connectionScore, 'dropScore': dropScore});
         }
-        scores.sort((a, b) => b.score - a.score);
-        const neighborMap = new Map(neighbors.map(n => [n.node, n]));
-        const top3 = scores.slice(0, 3);
-        for (let score of top3) {
-            if (nodeTable[node1].connections.length >= MAX_CONNECTIONS) {
-                let dropped = false;
-                if (nodeTable[node1].connections.includes(score.node)) {
-                    //console.log(`${score.node} is already connected; skipping drop attempt`);
+        if (toDrop.size != 0) {
+            for (let drop of toDrop) {
+                dropConnection(a, drop);
+            }
+        }
+        if (toConnect.size != 0) {
+            for (let connect of toConnect) {
+                // if already connected, ignore
+                if (nodeTable[a].connections.includes(connect)) {
                     continue;
                 }
-                for (let existingNode of [...nodeTable[node1].connections]) {
-                    const neighborInfo = neighborMap.get(existingNode);
-                    if (!neighborInfo) {
-                        //console.log(`${existingNode} not a neighbor; skipping`);
-                        continue;
-                    }
-                    let existingScore = 0;
-                    existingScore += (100 + neighborInfo.distance);
-                    existingScore += 100 / (nodeTable[existingNode].connections.length + 1);
-                    if (nodeTable[existingNode].connections.length == 0) {
-                        existingScore += 10000;
-                    }
-                    if (existingScore * DROP_PENALTY < score.score) {
-                        //console.log(`Dropping ${existingNode} from ${node1} for better ${score.node}`);
-                        const node1Idx = nodeTable[node1].connections.indexOf(existingNode);
-                        if (node1Idx !== -1) {
-                            nodeTable[node1].connections.splice(node1Idx, 1);
-                        }
-                        const node2Idx = nodeTable[existingNode].connections.indexOf(node1);
-                        if (node2Idx !== -1) {
-                            nodeTable[existingNode].connections.splice(node2Idx, 1);
-                        }
-                        edges.remove(`${node1}->${existingNode}`);
-                        edges.remove(`${existingNode}->${node1}`);
-                        dropped = true;
-                        break;
-                    } else {
-                        //console.log(`Not dropping ${existingNode} from ${node1}; score ${existingScore.toFixed(2)} >= candidate ${score.score.toFixed(2)}`);
-                        continue;
-                    }
-                }
-                // still at capacity and nothing was dropped — skip adding this candidate
-                if (nodeTable[node1].connections.length >= MAX_CONNECTIONS && !dropped) {
-                    continue;
-                }
+                nodeTable[a].connections.push(connect);
+                nodeTable[connect].connections.push(a);
+                connectNodes(a,connect);
             }
-            if (nodeTable[node1].connections.includes(score.node) || nodeTable[score.node].connections.includes(node1)) {
-                continue;
-            }
-            nodeTable[node1].connections.push(score.node);
-            nodeTable[score.node].connections.push(node1);
-            connectNodes(node1, score.node);
         }
     }
-    setTimeout(main, UPDATE_INTERVAL);
 }
-main();
 
-function onNodeAdd() {
+function dropConnection(nodeA, nodeB) {
+    edges.remove(`${nodeA}->${nodeB}`);
+    edges.remove(`${nodeB}->${nodeA}`);
+    const aIdx = nodeTable[nodeA].connections.indexOf(nodeB);
+    const bIdx = nodeTable[nodeB].connections.indexOf(nodeA);
+    if (aIdx !== -1) {
+        nodeTable[nodeA].connections.splice(aIdx, 1);
+    }
+    if (bIdx !== -1) {
+        nodeTable[nodeB].connections.splice(bIdx, 1);
+    }
+}
+
+function onNodeAdd(nodeId) {
+    // update grid
+    const position = network.getPosition(nodeId);
+    grid.add(nodeId, position.x, position.y);
+    recomputeNodeConnections(nodeId);
+    
     var nodeLength = Object.keys(nodeTable).length;
     if (nodeLength >= 200 && !warningModalShown) {
         warningModalShown = true;
@@ -527,8 +552,12 @@ document.getElementById('addNode').addEventListener('click', function() {
     const nodeId = generateRealisticLabel();
     nodes.add({id: nodeId, label: nodeId});
     nodeTable[nodeId] = {'connections': [], 'packetCache': [], 'routingTable': {}};
-    onNodeAdd();
+    onNodeAdd(nodeId);
 });
+
+/*
+    NETWORK EVENTS
+*/
 
 network.on('click', function(properties) {
     if (properties.nodes.length > 0) {
@@ -540,7 +569,7 @@ network.on('click', function(properties) {
         const nodeId = generateRealisticLabel();
         nodes.add({id: nodeId, label: nodeId, x: properties.pointer.canvas.x, y: properties.pointer.canvas.y});
         nodeTable[nodeId] = {'connections': [], 'packetCache': [], 'routingTable': {}};
-        onNodeAdd();
+        onNodeAdd(nodeId);
     }
 });
 
@@ -556,7 +585,17 @@ network.on('doubleClick', function(properties) {
     const nodeId = generateRealisticLabel();
     nodes.add({id: nodeId, label: nodeId, x: properties.pointer.canvas.x, y: properties.pointer.canvas.y});
     nodeTable[nodeId] = {'connections': [], 'packetCache': [], 'routingTable': {}};
-    onNodeAdd();
+    onNodeAdd(nodeId);
+});
+
+network.on('dragging', (properties) => {
+    if (properties.nodes.length == 0) {
+        return;
+    }
+    const nodeId = properties.nodes[0];
+    const pos = network.getPosition(nodeId);
+    grid.update(nodeId, pos.x, pos.y);
+    recomputeNodeConnections(nodeId);
 });
 
 network.on('beforeDrawing', function(ctx) {
@@ -694,7 +733,7 @@ document.getElementById('createRandomGraphConfirm').addEventListener('click', fu
         const nodeId = generateRealisticLabel();
         nodes.add({id: nodeId, label: nodeId, x: Math.random() * 1000, y: Math.random() * 1000});
         nodeTable[nodeId] = {'connections': [], 'packetCache': [], 'routingTable': {}};
-        onNodeAdd();
+        onNodeAdd(nodeId);
         nodeCounter++;
         if (nodeCounter >= nodeCount) {
             clearInterval(interval);
@@ -893,6 +932,11 @@ document.getElementById('cancelMarkNeighbor').addEventListener('click', function
 document.getElementById('showGrid').addEventListener('change', function() {
     showGrid = this.checked;
     network.redraw();
+});
+
+document.getElementById('showNodeUpdates').addEventListener('change', function() {
+    console.log(this.checked);
+    showUpdates = this.checked;
 });
 
 function consoleLog(message) {
