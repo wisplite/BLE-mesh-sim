@@ -705,14 +705,16 @@ function dropConnection(nodeA, nodeB) {
     }
 }
 
-function onNodeAdd(nodeId, defer=false) {
+function onNodeAdd(nodeId, defer=false, nodeData=null) {
     // update grid
-    const position = network.getPosition(nodeId);
-    grid.add(nodeId, position.x, position.y);
-
-    if (!defer) {
+	if (!defer) {
+		const position = network.getPosition(nodeId);
+		grid.add(nodeId, position.x, position.y);
         recomputeNodeConnections(nodeId);
-    }
+    } else {
+		const position = nodeData;
+		grid.add(nodeId, nodeData.x, nodeData.y);
+	}
     
     var nodeLength = Object.keys(nodeTable).length;
     document.getElementById('nodeCount').innerText = 'Node Count: ' + nodeLength;
@@ -908,6 +910,7 @@ document.getElementById('createRandomGraphConfirm').addEventListener('click', fu
     nodeTable = {};
     grid = new GridIndex(CONNECTION_DISTANCE);
     selectedNode = null;
+	let nodesToAdd = [];
 
     const cellSize = CONNECTION_DISTANCE;
     const cellsNeeded = Math.max(1, Math.ceil(nodeCount / density));
@@ -932,7 +935,7 @@ document.getElementById('createRandomGraphConfirm').addEventListener('click', fu
     // Jitter within each cell so nodes are spread but remain near the cell center
     const jitter = cellSize * 0.45;
 
-    let cellsPerFrame = 1;
+    let cellsPerFrame = cols;
     let runId;
     let nodesAdded = 0;
     let cellsFilled = 0;
@@ -950,9 +953,10 @@ document.getElementById('createRandomGraphConfirm').addEventListener('click', fu
                 const y = cy + (Math.random() * 2 - 1) * jitter;
 
                 const nodeId = generateRealisticLabel();
-                nodes.add({ id: nodeId, label: nodeId, x, y });
+				const nodeData = { id: nodeId, label: nodeId, x: x, y: y };
+                nodesToAdd.push(nodeData);
                 nodeTable[nodeId] = { 'connections': [], 'packetCache': new Set(), 'routingTable': {} };
-                onNodeAdd(nodeId, true);
+                onNodeAdd(nodeId, true, nodeData);
                 lastNodeAdded = nodeId;
                 nodesAdded++;
             }
@@ -964,6 +968,8 @@ document.getElementById('createRandomGraphConfirm').addEventListener('click', fu
             runId = requestAnimationFrame(addCells);
         } else {
             cancelAnimationFrame(runId);
+			console.log('done')
+			nodes.add(nodesToAdd);
             computeAllConnectionsFast();
         }
     }
