@@ -202,8 +202,8 @@ function quickPacketRaf(startNode, packetInfo, fromNode, opts = {}) {
 
             if (document.getElementById('showTTL').checked) {
                 if (ttl < 0) {
-                    edgeUpdateCache.push({id: `${from}->${nodeId}`, color: {color: 'white', highlight: 'white'}});
-                    edgeUpdateCache.push({id: `${nodeId}->${from}`, color: {color: 'white', highlight: 'white'}})
+                    edgeUpdateCache.push({id: `${from}->${nodeId}`, color: {color: '#878787', highlight: '#878787'}});
+                    edgeUpdateCache.push({id: `${nodeId}->${from}`, color: {color: '#878787', highlight: '#878787'}})
                 } else {
                     edgeUpdateCache.push({id: `${from}->${nodeId}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}})
                     edgeUpdateCache.push({id: `${nodeId}->${from}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}})
@@ -215,7 +215,7 @@ function quickPacketRaf(startNode, packetInfo, fromNode, opts = {}) {
 
             if (document.getElementById('showTTL').checked) {
                 if (ttl < 0) {
-                    nodeUpdateCache.push({id: nodeId, color: {background: 'white'}})
+                    nodeUpdateCache.push({id: nodeId, color: {background: '#878787'}})
                 } else {
                     nodeUpdateCache.push({id: nodeId, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}})
                 }
