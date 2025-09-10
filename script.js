@@ -7,9 +7,15 @@ var warningModalShown = false;
 var displayWarningWhenDone = false;
 var stillRouting = false;
 var markNeighborInterval = null;
+var showGrid = false;
+var showUpdates = false;
 // Track all active intervals for marking neighbors, and a cancel flag
 var markNeighborIntervals = new Set();
 var cancelMarkNeighborRequested = false;
+var markNeighborRafs = new Set();
+
+var nodeUpdateCache = [];
+var edgeUpdateCache = [];
 
 function smoothColorTransition(color1, color2, min, max, current) {
     // Clamp current between min and max
@@ -64,6 +70,8 @@ var edges = new vis.DataSet([
 
 var nodeTable = {};
 
+var grid = new GridIndex(CONNECTION_DISTANCE);
+
 var container = document.getElementById('simContainer');
 
 var data = {
@@ -75,6 +83,8 @@ var options = {
     nodes: {
         shape: 'box',
         physics: false,
+        borderWidth: 0,
+        borderWidthSelected: 2
     },
     edges: {
         physics: true,
@@ -117,11 +127,11 @@ onEdgeEngine.setArrivalCallback(async ({ from, to, dot }) => {
         edges.update({id: `${from}->${to}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
         edges.update({id: `${to}->${from}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
     }
-    if (nodeTable[to].packetCache.includes(dot.id.split('-')[0])) {
+    if (nodeTable[to].packetCache.has(dot.id.split('-')[0])) {
         return;
     }
     // update color of receiving node for visualization
-    nodeTable[to].packetCache.push(dot.id.split('-')[0]);
+    nodeTable[to].packetCache.add(dot.id.split('-')[0]);
     var packetId = dot.id.split('-')[0];
     var originNode = dot.id.split('-')[3];
     ttl--;
@@ -156,45 +166,89 @@ onEdgeEngine.setArrivalCallback(async ({ from, to, dot }) => {
     }
 });
 
-function quickPacket(startNode, packetInfo, fromNode) {
-    const packetId = packetInfo.split('-')[0];
-    const ttlStart = parseInt(packetInfo.split('-')[2]);
-    const originNode = packetInfo.split('-')[3];
+function quickPacketRaf(startNode, packetInfo, fromNode, opts = {}) {
+	const packetId = packetInfo.split('-')[0];
+	const ttlStart = parseInt(packetInfo.split('-')[2]);
+	const originNode = packetInfo.split('-')[3];
 
-    const queue = [{ nodeId: startNode, ttl: ttlStart, from: fromNode }];
+	// Dequeue with head index (avoid Array.shift() O(n))
+	let queue = [{ nodeId: startNode, ttl: ttlStart, from: fromNode }];
+	let head = 0;
 
-    while (queue.length > 0) {
-        const { nodeId, ttl, from } = queue.shift();
+	// Tuning knobs
+	const timeBudgetMs = opts.timeBudgetMs ?? 100; // per frame budget
+	const maxPerFrame = opts.maxPerFrame ?? 2000; // hard cap per frame
+	let cancelled = false;
 
-        if (ttl < 0) {
-            markNeighborsAsFailed(nodeId, from, packetId);
-            continue;
-        }
-        if (nodeTable[nodeId]?.packetCache?.includes(packetId)) {
-            continue;
-        }
+	function step() {
+		if (cancelled) return;
 
-        nodeTable[nodeId].packetCache.push(packetId);
+		const t0 = performance.now();
+		let processed = 0;
 
-        if (document.getElementById('showTTL').checked) {
-            nodes.update({id: nodeId, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
-            edges.update({id: `${from}->${nodeId}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
-            edges.update({id: `${nodeId}->${from}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
-        } else {
-            nodes.update({id: nodeId, color: {background: '#97c2fc'}});
-            edges.update({id: `${from}->${nodeId}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
-            edges.update({id: `${nodeId}->${from}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
-        }
+		while (head < queue.length) {
+			const { nodeId, ttl, from } = queue[head++];
 
-        const neighborsSnapshot = (nodeTable[nodeId]?.connections?.slice()) || [];
+			if (ttl < 0 && !document.getElementById('showTTL').checked) {
+                // legacy marking
+				if (document.getElementById('showTTL').checked) {
+					markNeighborsAsFailed(nodeId, from, packetId);
+				}
+				continue;
+			}
 
-        for (let neighbor of neighborsSnapshot) {
-            if (neighbor === originNode || neighbor === from) {
-                continue;
+			const node = nodeTable[nodeId];
+			if (!node) continue;
+
+            if (document.getElementById('showTTL').checked) {
+                if (ttl < 0) {
+                    edgeUpdateCache.push({id: `${from}->${nodeId}`, color: {color: '#878787', highlight: '#878787'}});
+                    edgeUpdateCache.push({id: `${nodeId}->${from}`, color: {color: '#878787', highlight: '#878787'}})
+                } else {
+                    edgeUpdateCache.push({id: `${from}->${nodeId}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}})
+                    edgeUpdateCache.push({id: `${nodeId}->${from}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}})
+                }
             }
-            queue.push({ nodeId: neighbor, ttl: ttl - 1, from: nodeId });
-        }
-    }
+
+			const cache = node.packetCache;
+			if (cache && cache.has(packetId)) continue;
+
+            if (document.getElementById('showTTL').checked) {
+                if (ttl < 0) {
+                    nodeUpdateCache.push({id: nodeId, color: {background: '#878787'}})
+                } else {
+                    nodeUpdateCache.push({id: nodeId, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}})
+                }
+            }
+
+			cache.add(packetId);
+
+			// Iterate connections directly (avoid .slice() allocations)
+			const neighbors = node.connections || [];
+			for (let i = 0; i < neighbors.length; i++) {
+				const neighbor = neighbors[i];
+				if (neighbor === originNode || neighbor === from) continue;
+				queue.push({ nodeId: neighbor, ttl: ttl - 1, from: nodeId });
+			}
+
+			processed++;
+			if (processed >= maxPerFrame || (performance.now() - t0) >= timeBudgetMs) {
+				requestAnimationFrame(step);
+				return;
+			}
+		}
+        popUpdateCache();
+	}
+
+	requestAnimationFrame(step);
+	return { cancel: () => { cancelled = true; } };
+}
+
+function popUpdateCache() {
+    nodes.update(nodeUpdateCache);
+    edges.update(edgeUpdateCache);
+    nodeUpdateCache = []
+    edgeUpdateCache = []
 }
 
 // This is a modified version of quickPacket that contains some extra logic to save routing tables.
@@ -214,11 +268,11 @@ function quickRoute(startNode, packetInfo, fromNode) {
             displayWarningWhenDone = true;
             continue;
         }
-        if (nodeTable[nodeId]?.packetCache?.includes(packetId)) {
+        if (nodeTable[nodeId]?.packetCache?.has(packetId)) {
             continue;
         }
 
-        nodeTable[nodeId].packetCache.push(packetId);
+        nodeTable[nodeId].packetCache.add(packetId);
         nodeTable[nodeId].routingTable[originNode] = from;
 
         if (document.getElementById('showTTL').checked) {
@@ -314,345 +368,386 @@ async function routePacket(currentNode, goalNode, packetInfo, first=false) {
     }
 }
 
-const markNeighborsAsFailed = (nodeId, from, packetId, visited = new Set()) => {
-    if (cancelMarkNeighborRequested) {
-        return;
-    }
-    if (visited.has(nodeId)) {
-        return;
-    }
-    visited.add(nodeId);
+// RAF-driven neighbor marking system
+const markNeighborsAsFailed = (startNodeId, from, packetId, visited = new Set(), opts = {}) => {
+	if (cancelMarkNeighborRequested) return;
+	if (visited.has(startNodeId)) return;
+	visited.add(startNodeId);
 
-    if (warningModalShown) {
-        // enable walkthrough mode to prevent browser from freezing
-        if (markNeighborIntervals.size === 0) {
-            cancelMarkNeighborRequested = false;
+	const timeBudgetMs = opts.timeBudgetMs ?? 3;      // tighter budget prevents long frames
+	const maxOpsPerFrame = opts.maxOpsPerFrame ?? 500;
+	const batchSize = opts.batchSize ?? 512;          // batch visual updates
+
+	// show cancel button when we start work
+	if (markNeighborRafs.size === 0 && markNeighborIntervals.size === 0) {
+		cancelMarkNeighborRequested = false;
+		document.getElementById('cancelMarkNeighbor').style.display = 'block';
+	}
+
+	// BFS queue of per-node neighbor iterators (no .slice())
+	const tasks = [];
+	let head = 0;
+	const pushTask = (id, fromId) => {
+		const n = nodeTable[id];
+		const neighbors = (n && n.connections) ? n.connections : [];
+		tasks.push({ nodeId: id, from: fromId, neighbors, idx: 0 });
+	};
+	pushTask(startNodeId, from);
+
+	// batch updates to reduce DOM churn
+	let nodeBatch = [];
+	let edgeBatch = [];
+	function flushBatches() {
+		if (nodeBatch.length) {
+			nodes.update(nodeBatch);
+			nodeBatch = [];
+		}
+		if (edgeBatch.length) {
+			edges.update(edgeBatch);
+			edgeBatch = [];
+		}
+	}
+
+	let rafId = null;
+	function step() {
+		if (cancelMarkNeighborRequested) {
+			if (rafId != null) {
+				cancelAnimationFrame(rafId);
+				markNeighborRafs.delete(rafId);
+				rafId = null;
+			}
+			flushBatches();
+			if (markNeighborRafs.size === 0 && markNeighborIntervals.size === 0) {
+				document.getElementById('cancelMarkNeighbor').style.display = 'none';
+			}
+			return;
+		}
+
+		const deadline = performance.now() + timeBudgetMs;
+		let ops = 0;
+
+		while (head < tasks.length) {
+			const task = tasks[head];
+
+			// process a few neighbors at a time; yield aggressively
+			while (task.idx < task.neighbors.length) {
+				const neighbor = task.neighbors[task.idx++];
+
+				if (neighbor === task.from) continue;
+				if (visited.has(neighbor)) continue;
+
+				const neighborNode = nodeTable[neighbor];
+				if (!neighborNode) continue;
+				if (neighborNode.packetCache?.has(packetId)) continue;
+
+				visited.add(neighbor);
+
+				// enqueue child (BFS)
+				const nextNeighbors = neighborNode.connections || [];
+				tasks.push({ nodeId: neighbor, from: task.nodeId, neighbors: nextNeighbors, idx: 0 });
+
+				// batch visuals
+				nodeBatch.push({ id: neighbor, color: { background: 'white' } });
+				edgeBatch.push({ id: `${task.nodeId}->${neighbor}`, color: { color: 'white', highlight: '#97c2fc' } });
+				edgeBatch.push({ id: `${neighbor}->${task.nodeId}`, color: { color: 'white', highlight: '#97c2fc' } });
+
+				ops++;
+
+				// time/ops-based yield
+				if (ops >= maxOpsPerFrame || performance.now() >= deadline) {
+					flushBatches(); // flush once per frame
+					if (rafId != null) markNeighborRafs.delete(rafId);
+					rafId = requestAnimationFrame(step);
+					markNeighborRafs.add(rafId);
+					return;
+				}
+
+				// keep batches bounded
+				if (nodeBatch.length >= batchSize || edgeBatch.length >= batchSize * 2) {
+					flushBatches();
+				}
+			}
+
+			// done with this node
+			head++;
+		}
+
+		// finished
+		flushBatches();
+		if (rafId != null) {
+			markNeighborRafs.delete(rafId);
+			rafId = null;
+		}
+		if (markNeighborRafs.size === 0 && markNeighborIntervals.size === 0) {
+			document.getElementById('cancelMarkNeighbor').style.display = 'none';
+		}
+	}
+
+	rafId = requestAnimationFrame(step);
+	markNeighborRafs.add(rafId);
+};
+
+
+function recomputeNodeConnections(nodeId, dragging=false) {
+    const p = network.getPosition(nodeId);
+    const candidates = grid.getNeighborCandidates(p.x, p.y);
+
+    // cache node positions now to prevent duplicate work later
+    const posById = new Map();
+    for (let id of candidates) {
+        if (nodeTable[id]) {
+            posById.set(id, network.getPosition(id));
         }
-        document.getElementById('cancelMarkNeighbor').style.display = 'block';
-        const neighborsSnapshot = (nodeTable[nodeId]?.connections?.slice()) || [];
-        const neighborsLength = neighborsSnapshot.length;
-        let currentIdx = 0;
-        const intervalId = setInterval(() => {
-            if (cancelMarkNeighborRequested) {
-                clearInterval(intervalId);
-                markNeighborIntervals.delete(intervalId);
-                if (markNeighborIntervals.size === 0) {
-                    document.getElementById('cancelMarkNeighbor').style.display = 'none';
+    }
+
+    // check all nearby nodes against all other nearby nodes
+    for (let a of candidates) {
+        if (!nodeTable[a]) {
+            continue;
+        }
+        // in case user drags node too fast, drop far connections
+        if (dragging) {
+            for (let connection of nodeTable[a].connections) {
+                const aPos = network.getPosition(a);
+                const bPos = network.getPosition(connection);
+                const distance = calculateDistance(aPos,bPos);
+                if (distance > CONNECTION_DISTANCE) {
+                    dropConnection(a,connection);
                 }
-                return;
             }
-            if (currentIdx < neighborsLength) {
-                const neighbor = neighborsSnapshot[currentIdx];
-                if (!visited.has(neighbor) && 
-                    !nodeTable[neighbor]?.packetCache?.includes(packetId) && 
-                    neighbor !== from) {
-                    nodes.update({id: neighbor, color: {background: 'white'}});
-                    edges.update({id: `${nodeId}->${neighbor}`, color: {color: 'white', highlight: '#97c2fc'}});
-                    edges.update({id: `${neighbor}->${nodeId}`, color: {color: 'white', highlight: '#97c2fc'}});
-                    markNeighborsAsFailed(neighbor, nodeId, packetId, visited);
+        }
+        if (showUpdates) {
+            console.log('updating')
+            let lastTime;
+            let fadePerS = 10;
+            let currentFade = 0;
+            let animationId;
+            function animateFlash(time) {
+                if (!lastTime) {
+                    lastTime = time;
                 }
-                currentIdx++;
-            } else {
-                clearInterval(intervalId);
-                markNeighborIntervals.delete(intervalId);
-                if (markNeighborIntervals.size === 0) {
-                    document.getElementById('cancelMarkNeighbor').style.display = 'none';
-                }
-            }
-        }, 1);
-        markNeighborIntervals.add(intervalId);
-        return;
-    }
+                const dTs = (time - lastTime) / 1000;
 
-    const neighborsSnapshot = (nodeTable[nodeId]?.connections?.slice()) || [];
-    for (let neighbor of neighborsSnapshot) {
-        if (visited.has(neighbor)) {
-            continue;
-        }
-        if (nodeTable[neighbor]?.packetCache?.includes(packetId)) {
-            continue;
-        }
-        if (neighbor === from) {
-            continue;
-        }
-        nodes.update({id: neighbor, color: {background: 'white'}});
-        edges.update({id: `${nodeId}->${neighbor}`, color: {color: 'white', highlight: '#97c2fc'}});
-        edges.update({id: `${neighbor}->${nodeId}`, color: {color: 'white', highlight: '#97c2fc'}});
-        markNeighborsAsFailed(neighbor, nodeId, packetId, visited);
-    }
-}
+                lastTime = time;
+                const diff = fadePerS * dTs;
+                currentFade += diff;
+                nodes.update({id: a, color: {background: smoothColorTransition('#eb4034', '#97c2fc', 0, 5, currentFade)}})
 
-function nodeSelectUpdateHandler(properties) {
-    // get containers
-    const connectionsTable = document.getElementById('connections');
-    
-    // clear containers
-    let connectionElements = connectionsTable.querySelectorAll('.connectionElement');
-    for (let connection of connectionElements) {
-        connection.remove();
-    }
-
-    try {
-        for (let connection of nodeTable[properties.nodes[0]].connections) {
-            const connectionElement = document.createElement('div');
-            connectionElement.classList.add('connectionElement');
-            connectionElement.innerHTML = connection;
-            connectionsTable.appendChild(connectionElement);
-        }
-    } catch (error) {
-        return;
-    }
-}
-
-network.on('selectNode', function(properties) {
-    selectedNode = properties.nodes[0];
-    if (document.getElementById('showRanges').checked) {
-        const centerPoint = network.getPosition(properties.nodes[0]);
-        const centerPointDOM = network.canvasToDOM({x: centerPoint.x, y: centerPoint.y});
-        const edgePointDOM = network.canvasToDOM({x: centerPoint.x + CONNECTION_DISTANCE, y: centerPoint.y});
-        const radius = Math.abs(edgePointDOM.x - centerPointDOM.x);
-        const rangeVis = document.createElement('div');
-        rangeVis.style.position = 'absolute';
-        rangeVis.style.top = (centerPointDOM.y - radius) + 'px';
-        rangeVis.style.left = (centerPointDOM.x - radius) + 'px';
-        rangeVis.style.width = radius * 2 + 'px';
-        rangeVis.style.height = radius * 2 + 'px';
-        rangeVis.classList.add('rangeVis');
-        document.getElementById('simContainer').appendChild(rangeVis);
-    } else {
-        const rangeVis = document.querySelector('.rangeVis');
-        if (rangeVis) {
-            rangeVis.remove();
-        }
-    }
-    nodeSelectUpdateHandler(properties);
-});
-
-network.on('dragging', function(properties) {
-    if (properties.nodes.length > 0) {
-        selectedNode = properties.nodes[0];
-    }
-    if (document.getElementById('showRanges').checked) {
-        if (selectedNode != null) {
-            const centerPoint = network.getPosition(selectedNode);
-            const centerPointDOM = network.canvasToDOM({x: centerPoint.x, y: centerPoint.y});
-            const edgePointDOM = network.canvasToDOM({x: centerPoint.x + CONNECTION_DISTANCE, y: centerPoint.y});
-            const radius = Math.abs(edgePointDOM.x - centerPointDOM.x);
-            const rangeVis = document.querySelector('.rangeVis');
-            if (rangeVis) {
-                rangeVis.style.top = (centerPointDOM.y - radius) + 'px';
-                rangeVis.style.left = (centerPointDOM.x - radius) + 'px';
-                rangeVis.style.width = radius * 2 + 'px';
-                rangeVis.style.height = radius * 2 + 'px';
-            } else {
-                const rangeVis = document.createElement('div');
-                rangeVis.style.position = 'absolute';
-                rangeVis.style.top = (centerPointDOM.y - radius) + 'px';
-                rangeVis.style.left = (centerPointDOM.x - radius) + 'px';
-                rangeVis.style.width = radius * 2 + 'px';
-                rangeVis.style.height = radius * 2 + 'px';
-                rangeVis.classList.add('rangeVis');
-                document.getElementById('simContainer').appendChild(rangeVis);
-            }
-        } else if (properties.nodes.length > 0) {
-            selectedNode = properties.nodes[0];
-            const centerPoint = network.getPosition(selectedNode);
-            const centerPointDOM = network.canvasToDOM({x: centerPoint.x, y: centerPoint.y});
-            const edgePointDOM = network.canvasToDOM({x: centerPoint.x + CONNECTION_DISTANCE, y: centerPoint.y});
-            const radius = Math.abs(edgePointDOM.x - centerPointDOM.x);
-            const rangeVis = document.querySelector('.rangeVis');
-            if (rangeVis) {
-                rangeVis.style.top = (centerPointDOM.y - radius) + 'px';
-                rangeVis.style.left = (centerPointDOM.x - radius) + 'px';
-                rangeVis.style.width = radius * 2 + 'px';
-                rangeVis.style.height = radius * 2 + 'px';
-            }
-        }
-    }
-    nodeSelectUpdateHandler(properties);
-});
-
-network.on('zoom', function(properties) {
-    if (document.getElementById('showRanges').checked) {
-        if (selectedNode) {
-            const centerPoint = network.getPosition(selectedNode);
-            const centerPointDOM = network.canvasToDOM({x: centerPoint.x, y: centerPoint.y});
-            const edgePointDOM = network.canvasToDOM({x: centerPoint.x + CONNECTION_DISTANCE, y: centerPoint.y});
-            const radius = Math.abs(edgePointDOM.x - centerPointDOM.x);
-            const rangeVis = document.querySelector('.rangeVis');
-            if (rangeVis) {
-                rangeVis.style.top = (centerPointDOM.y - radius) + 'px';
-                rangeVis.style.left = (centerPointDOM.x - radius) + 'px';
-                rangeVis.style.width = radius * 2 + 'px';
-                rangeVis.style.height = radius * 2 + 'px';
-            }
-        }
-    }
-    nodeSelectUpdateHandler(properties);
-});
-
-network.on('deselectNode', function(properties) {
-    selectedNode = null;
-    const rangeVis = document.querySelector('.rangeVis');
-    if (rangeVis) {
-        rangeVis.remove();
-    }
-    nodeSelectUpdateHandler(properties);
-});
-
-// main event loop
-function main() {
-    const currentNodes = network.getPositions();
-    const currentNodesKeys = Object.keys(currentNodes);
-    for (let node1 of currentNodesKeys) {
-        let neighbors = [];
-        if (!nodeTable[node1]) {
-            continue;
-        }
-        for (let node2 of currentNodesKeys) {
-            if (!nodeTable[node2]) {
-                continue;
-            }
-            if (node1 !== node2) {
-                const node1data = currentNodes[node1];
-                const node2data = currentNodes[node2];
-                const distance = calculateDistance(node1data, node2data);
-                if (distance < CONNECTION_DISTANCE) {
-                    neighbors.push({'node': node2, 'distance': distanceToRSSI(distance), });
+                if (currentFade < 5) {
+                    animationId = requestAnimationFrame(animateFlash);
                 } else {
-                    edges.remove(`${node1}->${node2}`);
-                    edges.remove(`${node2}->${node1}`);
-                    const node1Idx = nodeTable[node1].connections.indexOf(node2);
-                    if (node1Idx !== -1) {
-                        nodeTable[node1].connections.splice(node1Idx, 1);
-                    }
-                    const node2Idx = nodeTable[node2].connections.indexOf(node1);
-                    if (node2Idx !== -1) {
-                        nodeTable[node2].connections.splice(node2Idx, 1);
-                    }
+                    nodes.update({id: a, color: {background: '#97c2fc'}});
+                    animationId = null;
+                }
+            }
+            animationId = requestAnimationFrame(animateFlash);
+        }
+        let trueNeighbors = []
+        for (let b of candidates) {
+            if (a === b) {
+                continue;
+            }
+            if (!nodeTable[b]) {
+                continue;
+            }
+            const aPos = posById.get(a);
+            const bPos = posById.get(b);
+            const distance = calculateDistance(aPos,bPos);
+            if (distance < CONNECTION_DISTANCE) {
+                let connectionScore = 0;
+                let dropScore = 0;
+                connectionScore += (100 + distanceToRSSI(distance));
+                connectionScore += 100 / (nodeTable[b].connections.length + 1);
+                if (nodeTable[b].connections.length == 0) {
+                    connectionScore += 100;
+                }
+                if (nodeTable[a].connections.includes(b) && nodeTable[b].connections.length == 1) {
+                    // assume current node is only connection
+                    connectionScore += 1000;
+                }
+                if (nodeTable[a].connections.includes(b)) {
+                    dropScore = connectionScore * DROP_PENALTY;
+                }
+                trueNeighbors.push({'nodeId': b, 'distance': distanceToRSSI(distance), 'score': connectionScore, 'dropScore': dropScore});
+            } else {
+                if (nodeTable[a].connections.includes(b)) {
+                    dropConnection(a,b);
                 }
             }
         }
-        const scores = [];
-        for (let neighbor of neighbors) {
-            if (!nodeTable[neighbor.node]) {
+        trueNeighbors.sort((aS, bS) => bS.score - aS.score);
+        const neighborMap = new Map(trueNeighbors.map(n => [n.nodeId, n]));
+        const topCandidates = trueNeighbors.slice(0, MAX_CONNECTIONS);
+        let toDrop = new Set();
+        let toConnect = new Set();
+        for (let node of topCandidates) {
+            if (nodeTable[node.nodeId].connections.length >= MAX_CONNECTIONS) {
                 continue;
             }
-            let connectionScore = 0;
-            let dropScore = 0;
-            connectionScore += (100 + neighbor.distance);
-            connectionScore += 100 / (nodeTable[neighbor.node].connections.length + 1);
-            if (nodeTable[neighbor.node].connections.length == 0) {
-                connectionScore += 10000;
+            if (nodeTable[a].connections.length >= MAX_CONNECTIONS || (nodeTable[a].connections.length + toConnect.size) >= MAX_CONNECTIONS) {
+                if (nodeTable[a].connections.includes(node.nodeId)) {
+                    continue;
+                }
+                for (let activeConnection of nodeTable[a].connections) {
+                    if (toDrop.has(activeConnection)) {
+                        continue;
+                    }
+                    if (neighborMap.get(activeConnection) && neighborMap.get(activeConnection).dropScore < node.score) {
+                        toDrop.add(activeConnection);
+                        toConnect.add(node.nodeId);
+                    }
+                }
+            } else {
+                toConnect.add(node.nodeId);
             }
-            if (nodeTable[neighbor.node].connections.length >= MAX_CONNECTIONS) {
-                continue;
-            }
-            if (nodeTable[node1].connections.includes(neighbor.node)) {
-                dropScore = connectionScore;
-            }
-            scores.push({'node': neighbor.node, 'score': connectionScore, 'dropScore': dropScore});
         }
-        scores.sort((a, b) => b.score - a.score);
-        const neighborMap = new Map(neighbors.map(n => [n.node, n]));
-        const top3 = scores.slice(0, 3);
-        for (let score of top3) {
-            if (nodeTable[node1].connections.length >= MAX_CONNECTIONS) {
-                let dropped = false;
-                if (nodeTable[node1].connections.includes(score.node)) {
-                    //console.log(`${score.node} is already connected; skipping drop attempt`);
+        if (toDrop.size != 0) {
+            for (let drop of toDrop) {
+                dropConnection(a, drop);
+            }
+        }
+        if (toConnect.size != 0) {
+            for (let connect of toConnect) {
+                // if already connected, ignore
+                if (nodeTable[a].connections.includes(connect)) {
                     continue;
                 }
-                for (let existingNode of [...nodeTable[node1].connections]) {
-                    const neighborInfo = neighborMap.get(existingNode);
-                    if (!neighborInfo) {
-                        //console.log(`${existingNode} not a neighbor; skipping`);
-                        continue;
-                    }
-                    let existingScore = 0;
-                    existingScore += (100 + neighborInfo.distance);
-                    existingScore += 100 / (nodeTable[existingNode].connections.length + 1);
-                    if (nodeTable[existingNode].connections.length == 0) {
-                        existingScore += 10000;
-                    }
-                    if (existingScore * DROP_PENALTY < score.score) {
-                        //console.log(`Dropping ${existingNode} from ${node1} for better ${score.node}`);
-                        const node1Idx = nodeTable[node1].connections.indexOf(existingNode);
-                        if (node1Idx !== -1) {
-                            nodeTable[node1].connections.splice(node1Idx, 1);
-                        }
-                        const node2Idx = nodeTable[existingNode].connections.indexOf(node1);
-                        if (node2Idx !== -1) {
-                            nodeTable[existingNode].connections.splice(node2Idx, 1);
-                        }
-                        edges.remove(`${node1}->${existingNode}`);
-                        edges.remove(`${existingNode}->${node1}`);
-                        dropped = true;
-                        break;
-                    } else {
-                        //console.log(`Not dropping ${existingNode} from ${node1}; score ${existingScore.toFixed(2)} >= candidate ${score.score.toFixed(2)}`);
-                        continue;
-                    }
-                }
-                // still at capacity and nothing was dropped — skip adding this candidate
-                if (nodeTable[node1].connections.length >= MAX_CONNECTIONS && !dropped) {
-                    continue;
-                }
+                nodeTable[a].connections.push(connect);
+                nodeTable[connect].connections.push(a);
+                connectNodes(a,connect);
             }
-            if (nodeTable[node1].connections.includes(score.node) || nodeTable[score.node].connections.includes(node1)) {
-                continue;
-            }
-            nodeTable[node1].connections.push(score.node);
-            nodeTable[score.node].connections.push(node1);
-            connectNodes(node1, score.node);
         }
     }
-    setTimeout(main, UPDATE_INTERVAL);
 }
-main();
 
-function onNodeAdd() {
-    var nodeLength = Object.keys(nodeTable).length;
-    if (nodeLength >= 200 && !warningModalShown) {
-        warningModalShown = true;
-        document.getElementById('warningModal').style.display = 'block';
-        document.getElementById('warningModalMessage').innerHTML = 'Large network detected; simulation speed will be reduced.';
-        document.getElementById('warningModalCustomContent').innerHTML = `<details><summary>What does this mean?</summary>
-        <p>The simulation, by default, computes every node's connections 100 'times' per second. Due to the size of this network, this could cause the browser to freeze. To prevent this, the update interval (found in engine settings) is now locked to a multiple of the number of nodes. Additionally, when computing which nodes weren't reached after a packet is sent, the simulation will now walk through the network in steps rather than computing everything at once.</p>
-        <br>
-        <p>You may also want to consider using the quick packet feature, which will compute the packet propagation instantly rather than animating it. The animated nodes can cause lots of performance issues, especially on non-Chromium browsers.</p>`;
-        document.getElementById('updateInterval').disabled = true;
-        document.getElementById('updateInterval').value = nodeLength*2;
-        UPDATE_INTERVAL = nodeLength*2;
-        document.getElementById('simSpeed').value = 1;
-        onEdgeEngine.setSimulationSpeed(1);
-    } else if (nodeLength >= 200 && warningModalShown) {
-        document.getElementById('updateInterval').value = nodeLength*2;
-        UPDATE_INTERVAL = nodeLength*2;
+function computeAllConnectionsFast() {
+    // Cache positions and initialize degree/connection sets
+    const items = nodes.get(); // [{id,x,y,...}]
+    const pos = new Map(items.map(n => [n.id, { x: n.x, y: n.y }]));
+    const ids = items.map(n => n.id);
+
+    for (let id of ids) {
+        if (!nodeTable[id]) {
+            nodeTable[id] = { connections: [], packetCache: new Set(), routingTable: {} };
+        }
     }
+
+    const degree = new Map(ids.map(id => [id, nodeTable[id].connections.length || 0]));
+    const connSet = new Map(ids.map(id => [id, new Set(nodeTable[id].connections || [])]));
+
+    const newEdges = [];
+
+    // Greedy, capacity-aware linking within neighborhood
+    for (let a of ids) {
+        const ap = pos.get(a);
+        if (!ap) continue;
+
+        const candidates = grid.getNeighborCandidates(ap.x, ap.y);
+        const scored = [];
+
+        for (let b of candidates) {
+            if (b === a) continue;
+            if (!pos.has(b)) continue;
+            if (connSet.get(a).has(b)) continue;
+
+            const bp = pos.get(b);
+            const d = calculateDistance(ap, bp);
+            if (d >= CONNECTION_DISTANCE) continue;
+
+            // Favor closer, low-degree, and isolated nodes
+            const bdeg = degree.get(b) || 0;
+            let score = 100 + distanceToRSSI(d);
+            score += 100 / (bdeg + 1);
+            if (bdeg === 0) score += 100;
+
+            scored.push({ id: b, score });
+        }
+
+        if (scored.length === 0) continue;
+        scored.sort((x, y) => y.score - x.score);
+
+        for (let s of scored) {
+            if ((degree.get(a) || 0) >= MAX_CONNECTIONS) break;
+            const b = s.id;
+            if ((degree.get(b) || 0) >= MAX_CONNECTIONS) continue;
+            if (connSet.get(a).has(b)) continue;
+
+            connSet.get(a).add(b);
+            connSet.get(b).add(a);
+            degree.set(a, (degree.get(a) || 0) + 1);
+            degree.set(b, (degree.get(b) || 0) + 1);
+
+            nodeTable[a].connections.push(b);
+            nodeTable[b].connections.push(a);
+
+            newEdges.push({ id: `${a}->${b}`, from: a, to: b });
+            newEdges.push({ id: `${b}->${a}`, from: b, to: a });
+
+            if ((degree.get(a) || 0) >= MAX_CONNECTIONS) break;
+        }
+    }
+
+    if (newEdges.length > 0) {
+        edges.add(newEdges);
+    }
+}
+
+function dropConnection(nodeA, nodeB) {
+    edges.remove(`${nodeA}->${nodeB}`);
+    edges.remove(`${nodeB}->${nodeA}`);
+    const aIdx = nodeTable[nodeA].connections.indexOf(nodeB);
+    const bIdx = nodeTable[nodeB].connections.indexOf(nodeA);
+    if (aIdx !== -1) {
+        nodeTable[nodeA].connections.splice(aIdx, 1);
+    }
+    if (bIdx !== -1) {
+        nodeTable[nodeB].connections.splice(bIdx, 1);
+    }
+}
+
+function onNodeAdd(nodeId, defer=false, nodeData=null) {
+    // update grid
+	if (!defer) {
+		const position = network.getPosition(nodeId);
+		grid.add(nodeId, position.x, position.y);
+        recomputeNodeConnections(nodeId);
+    } else {
+		const position = nodeData;
+		grid.add(nodeId, nodeData.x, nodeData.y);
+	}
+    
+    var nodeLength = Object.keys(nodeTable).length;
+    document.getElementById('nodeCount').innerText = 'Node Count: ' + nodeLength;
 }
 
 document.getElementById('addNode').addEventListener('click', function() {
     const nodeId = generateRealisticLabel();
     nodes.add({id: nodeId, label: nodeId});
-    nodeTable[nodeId] = {'connections': [], 'packetCache': [], 'routingTable': {}};
-    onNodeAdd();
+    nodeTable[nodeId] = {'connections': [], 'packetCache': new Set(), 'routingTable': {}};
+    onNodeAdd(nodeId);
 });
+
+/*
+    NETWORK EVENTS
+*/
 
 network.on('click', function(properties) {
     if (properties.nodes.length > 0) {
-        return;
+        selectedNode = properties.nodes[0];
+    } else {
+        selectedNode = null;
     }
     if (document.getElementById('quickPlace').checked) {
         const nodeId = generateRealisticLabel();
         nodes.add({id: nodeId, label: nodeId, x: properties.pointer.canvas.x, y: properties.pointer.canvas.y});
-        nodeTable[nodeId] = {'connections': [], 'packetCache': [], 'routingTable': {}};
-        onNodeAdd();
+        nodeTable[nodeId] = {'connections': [], 'packetCache': new Set(), 'routingTable': {}};
+        onNodeAdd(nodeId);
     }
 });
 
 network.on('doubleClick', function(properties) {
     if (document.getElementById('quickPlace').checked) {
+        selectedNode = null;
         return;
     }
     if (properties.nodes.length > 0) {
@@ -661,9 +756,70 @@ network.on('doubleClick', function(properties) {
     }
     const nodeId = generateRealisticLabel();
     nodes.add({id: nodeId, label: nodeId, x: properties.pointer.canvas.x, y: properties.pointer.canvas.y});
-    nodeTable[nodeId] = {'connections': [], 'packetCache': [], 'routingTable': {}};
-    onNodeAdd();
+    nodeTable[nodeId] = {'connections': [], 'packetCache': new Set(), 'routingTable': {}};
+    onNodeAdd(nodeId);
 });
+
+network.on('dragging', (properties) => {
+    if (properties.nodes.length == 0) {
+        return;
+    }
+    const nodeId = properties.nodes[0];
+    const pos = network.getPosition(nodeId);
+    grid.update(nodeId, pos.x, pos.y);
+    recomputeNodeConnections(nodeId, true);
+});
+
+network.on('beforeDrawing', function(ctx) {
+    if (showGrid) {
+        drawGrid(ctx);
+    }
+    if (selectedNode && document.getElementById('showRanges').checked) {
+        drawRange(ctx);
+    }
+});
+
+function drawGrid(ctx) {
+    ctx.strokeStyle = '#878787';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const scale = network.getScale();
+    const gridSize = CONNECTION_DISTANCE;
+    
+    // Get the visible area bounds
+    const viewPosition = network.getViewPosition();
+    const canvasElement = network.canvas.frame.canvas;
+    const canvasWidth = canvasElement.width;
+    const canvasHeight = canvasElement.height;
+    
+    // Calculate grid bounds based on view position and scale
+    const startX = Math.floor((viewPosition.x - canvasWidth / (2 * scale)) / gridSize) * gridSize;
+    const endX = Math.ceil((viewPosition.x + canvasWidth / (2 * scale)) / gridSize) * gridSize;
+    const startY = Math.floor((viewPosition.y - canvasHeight / (2 * scale)) / gridSize) * gridSize;
+    const endY = Math.ceil((viewPosition.y + canvasHeight / (2 * scale)) / gridSize) * gridSize;
+    
+    // Draw vertical lines
+    for (let x = startX; x <= endX; x += gridSize) {
+        ctx.moveTo(x, startY);
+        ctx.lineTo(x, endY);
+    }
+    
+    // Draw horizontal lines
+    for (let y = startY; y <= endY; y += gridSize) {
+        ctx.moveTo(startX, y);
+        ctx.lineTo(endX, y);
+    }
+    ctx.stroke();
+}
+
+function drawRange(ctx) {
+    ctx.strokeStyle = '#878787';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const position = network.getPosition(selectedNode);
+    ctx.arc(position.x, position.y, CONNECTION_DISTANCE, 0, 2 * Math.PI);
+    ctx.stroke();
+}
 
 document.getElementById('sendPacket').addEventListener('click', function() {
     if (selectedNode == null) {
@@ -689,19 +845,22 @@ document.getElementById('sendPacket').addEventListener('click', function() {
             }
         };
         onEdgeEngine.createDotNode(movingNode, selectedNode, connection);
-        nodeTable[selectedNode].packetCache.push(packetId);
+        nodeTable[selectedNode].packetCache.add(packetId);
         packetShift = generateRealisticLabel();
     }
 });
 
 document.getElementById('resetTTLColors').addEventListener('click', function() {
+	let nodeUpdates = [];
+	let edgeUpdates = [];
     for (let node of nodes.get()) {
-        nodes.update({id: node.id, color: {background: '#97c2fc'}});
+		nodeUpdates.push({id: node.id, color: {background: '#97c2fc'}});
     }
-
     for (let edge of edges.get()) {
-        edges.update({id: edge.id, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
+		edgeUpdates.push({id: edge.id, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
     }
+	nodes.update(nodeUpdates);
+	edges.update(edgeUpdates);
 });
 
 document.getElementById('updateInterval').addEventListener('change', function() {
@@ -738,32 +897,83 @@ document.getElementById('createRandomGraph').addEventListener('click', function(
 
 document.getElementById('createRandomGraphConfirm').addEventListener('click', function() {
     const nodeCount = parseInt(document.getElementById('randomGraphNodes').value);
-    network.setOptions({
-        nodes: {
-            shape: 'box',
-            physics: true,
-        },
-    });
-    let nodeCounter = 0;
-    const interval = setInterval(() => {
-        const nodeId = generateRealisticLabel();
-        nodes.add({id: nodeId, label: nodeId, x: Math.random() * 1000, y: Math.random() * 1000});
-        nodeTable[nodeId] = {'connections': [], 'packetCache': [], 'routingTable': {}};
-        onNodeAdd();
-        nodeCounter++;
-        if (nodeCounter >= nodeCount) {
-            clearInterval(interval);
-            setTimeout(() => {
-                network.setOptions({
-                    nodes: {
-                        shape: 'box',
-                        physics: false,
-                    }
-                });
-            }, 2000);
-        }
-    }, 10);
+    const density = Math.max(1, parseInt(document.getElementById('randomGraphDensity').value) || 1);
+    
     document.getElementById('randomGraphModal').style.display = 'none';
+    if (!Number.isFinite(nodeCount) || nodeCount <= 0) {
+        return;
+    }
+
+    // Reset existing graph
+    nodes.clear();
+    edges.clear();
+    nodeTable = {};
+    grid = new GridIndex(CONNECTION_DISTANCE);
+    selectedNode = null;
+	let nodesToAdd = [];
+
+    const cellSize = CONNECTION_DISTANCE;
+    const cellsNeeded = Math.max(1, Math.ceil(nodeCount / density));
+    const cols = Math.ceil(Math.sqrt(cellsNeeded));
+    const rows = Math.ceil(cellsNeeded / cols);
+
+    // Center the layout on the current view
+    const center = network.getViewPosition();
+
+    // Distribute node counts across cells (roughly even, no big clumps)
+    const counts = new Array(cellsNeeded).fill(Math.floor(nodeCount / cellsNeeded));
+    let remainder = nodeCount % cellsNeeded;
+    const idxs = Array.from({ length: cellsNeeded }, (_, i) => i);
+    for (let i = idxs.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [idxs[i], idxs[j]] = [idxs[j], idxs[i]];
+    }
+    for (let i = 0; i < remainder; i++) {
+        counts[idxs[i]]++;
+    }
+
+    // Jitter within each cell so nodes are spread but remain near the cell center
+    const jitter = cellSize * 0.45;
+
+    let cellsPerFrame = cols;
+    let runId;
+    let nodesAdded = 0;
+    let cellsFilled = 0;
+    let lastNodeAdded;
+    function addCells() {
+        const end = Math.min(cellsFilled+cellsPerFrame, cellsNeeded);
+        for (let i = cellsFilled; i < end; i++) {
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            const cx = center.x + (col - (cols - 1) / 2) * cellSize;
+            const cy = center.y + (row - (rows - 1) / 2) * cellSize;
+
+            for (let k = 0; k < counts[i]; k++) {
+                const x = cx + (Math.random() * 2 - 1) * jitter;
+                const y = cy + (Math.random() * 2 - 1) * jitter;
+
+                const nodeId = generateRealisticLabel();
+				const nodeData = { id: nodeId, label: nodeId, x: x, y: y };
+                nodesToAdd.push(nodeData);
+                nodeTable[nodeId] = { 'connections': [], 'packetCache': new Set(), 'routingTable': {} };
+                onNodeAdd(nodeId, true, nodeData);
+                lastNodeAdded = nodeId;
+                nodesAdded++;
+            }
+            //recomputeNodeConnections(lastNodeAdded);
+            cellsFilled++;
+        }
+
+        if (cellsFilled < cellsNeeded) {
+            runId = requestAnimationFrame(addCells);
+        } else {
+            cancelAnimationFrame(runId);
+			console.log('done')
+			nodes.add(nodesToAdd);
+            computeAllConnectionsFast();
+        }
+    }
+    runId = requestAnimationFrame(addCells);
 });
 
 document.getElementById('darkMode').addEventListener('change', function() {
@@ -783,7 +993,7 @@ document.getElementById('quickPacket').addEventListener('click', async function(
     const packetId = generateRealisticLabel();
     var packetShift = generateRealisticLabel();
     let ttl = TTL;
-    quickPacket(selectedNode, `${packetId}-${packetShift}-${ttl}-${selectedNode}`, selectedNode);
+    quickPacketRaf(selectedNode, `${packetId}-${packetShift}-${ttl}-${selectedNode}`, selectedNode);
 });
 
 document.getElementById('createRoutingTables').addEventListener('click', function() {
@@ -937,12 +1147,29 @@ window.onload = function() {
 document.getElementById('cancelMarkNeighbor').addEventListener('click', function() {
     consoleLog('Cancelling mark neighbor...');
     cancelMarkNeighborRequested = true;
-    // Clear any tracked intervals
+
+    // Clear any tracked intervals (legacy)
     for (let id of Array.from(markNeighborIntervals)) {
         clearInterval(id);
         markNeighborIntervals.delete(id);
     }
+    // Clear any tracked RAFs
+    for (let id of Array.from(markNeighborRafs)) {
+        cancelAnimationFrame(id);
+        markNeighborRafs.delete(id);
+    }
+
     document.getElementById('cancelMarkNeighbor').style.display = 'none';
+});
+
+document.getElementById('showGrid').addEventListener('change', function() {
+    showGrid = this.checked;
+    network.redraw();
+});
+
+document.getElementById('showNodeUpdates').addEventListener('change', function() {
+    console.log(this.checked);
+    showUpdates = this.checked;
 });
 
 function consoleLog(message) {
