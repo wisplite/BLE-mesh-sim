@@ -80,6 +80,8 @@ var options = {
     nodes: {
         shape: 'box',
         physics: false,
+        borderWidth: 0,
+        borderWidthSelected: 2
     },
     edges: {
         physics: true,
@@ -171,7 +173,7 @@ function quickPacketRaf(startNode, packetInfo, fromNode, opts = {}) {
 	let head = 0;
 
 	// Tuning knobs
-	const timeBudgetMs = opts.timeBudgetMs ?? 6; // per frame budget
+	const timeBudgetMs = opts.timeBudgetMs ?? 100; // per frame budget
 	const maxPerFrame = opts.maxPerFrame ?? 2000; // hard cap per frame
 	let cancelled = false;
 
@@ -194,20 +196,19 @@ function quickPacketRaf(startNode, packetInfo, fromNode, opts = {}) {
 			const node = nodeTable[nodeId];
 			if (!node) continue;
 
+            if (document.getElementById('showTTL').checked) {
+                edges.update({id: `${from}->${nodeId}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
+                edges.update({id: `${nodeId}->${from}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
+            }
+
 			const cache = node.packetCache;
 			if (cache && cache.has(packetId)) continue;
 
-			cache.add(packetId);
-
             if (document.getElementById('showTTL').checked) {
                 nodes.update({id: nodeId, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
-                edges.update({id: `${from}->${nodeId}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
-                edges.update({id: `${nodeId}->${from}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
-            } else {
-                nodes.update({id: nodeId, color: {background: '#97c2fc'}});
-                edges.update({id: `${from}->${nodeId}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
-                edges.update({id: `${nodeId}->${from}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
             }
+
+			cache.add(packetId);
 
 			// Iterate connections directly (avoid .slice() allocations)
 			const neighbors = node.connections || [];
@@ -354,7 +355,7 @@ const markNeighborsAsFailed = (startNodeId, from, packetId, visited = new Set(),
 
 	const timeBudgetMs = opts.timeBudgetMs ?? 3;      // tighter budget prevents long frames
 	const maxOpsPerFrame = opts.maxOpsPerFrame ?? 500;
-	const batchSize = opts.batchSize ?? 256;          // batch visual updates
+	const batchSize = opts.batchSize ?? 512;          // batch visual updates
 
 	// show cancel button when we start work
 	if (markNeighborRafs.size === 0 && markNeighborIntervals.size === 0) {
