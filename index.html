@@ -4,9 +4,10 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>BLE-mesh SIM</title>
-        <script type="text/javascript" src="vis-network.min.js"></script>
-        <script type="text/javascript" src="simhelper.js"></script>
-        <script type="text/javascript" src="CompleteMoveOnEdge.js"></script>
+        <script type="text/javascript" src="js/vis-network.min.js"></script>
+        <script type="text/javascript" src="js/simhelper.js"></script>
+        <script type="text/javascript" src="js/CompleteMoveOnEdge.js"></script>
+        <script type="text/javascript" src="js/GridIndex.js"></script>
         <link rel="stylesheet" id="styleSheet" href="style.css">
     </head>
     <body>
@@ -45,15 +46,23 @@
                     <summary>Visualization Settings</summary>
                     <div id="visualizationSettingsContent">
                         <div id="visualizationSettingsToggles">
-                            <input type="checkbox" id="showRanges">
+                            <input type="checkbox" id="showRanges" autocomplete="off">
                             <label for="showRanges">Show Ranges</label>
                         </div>
                         <div id="visualizationSettingsToggles">
-                            <input type="checkbox" id="showTTL" checked>
+                            <input type="checkbox" id="showGrid" autocomplete="off">
+                            <label for="showGrid">Show Grid</label>
+                        </div>
+                        <div id="visualizationSettingsToggles">
+                            <input type="checkbox" id="showNodeUpdates" autocomplete="off">
+                            <label for="showNodeUpdates">Show Node Updates</label>
+                        </div>
+                        <div id="visualizationSettingsToggles">
+                            <input type="checkbox" id="showTTL" autocomplete="off" checked>
                             <label for="showTTL">Show TTL Colors</label>
                         </div>
                         <div id="visualizationSettingsToggles">
-                            <input type="checkbox" id="darkMode" checked>
+                            <input type="checkbox" id="darkMode" autocomplete="off" checked>
                             <label for="darkMode">Dark Mode</label>
                         </div>
                     </div>
@@ -65,6 +74,7 @@
                     <label for="quickPlace">Quick Place</label>
                 </div>
                 <button id="cancelMarkNeighbor">Cancel</button>
+                <p id="nodeCount">Node Count: 0</p>
             </div>
             <div id="centerColumn" style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 70%; height: 100%; margin: 0 auto;">
                 <div id="simContainer"></div>
@@ -90,6 +100,8 @@
                 <div id="randomGraphModalContent">
                     <label for="randomGraphNodes">Number of Nodes</label>
                     <input type="number" id="randomGraphNodes" value="10" autocomplete="off">
+                    <label for="randomGraphDensity">Density (nodes per cell)</label>
+                    <input type="number" id="randomGraphDensity" value="10" autocomplete="off">
                     <div id="randomGraphModalButtons" style="display: flex; flex-direction: row; gap: 10px; justify-content: end; align-items: center;">
                         <button id="createRandomGraphCancel" class="controlButton" onclick="document.getElementById('randomGraphModal').style.display = 'none';">Cancel</button>
                         <button id="createRandomGraphConfirm" class="controlButton">Create</button>

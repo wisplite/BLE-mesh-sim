@@ -12,6 +12,7 @@ class CompleteNodeOnEdgeEngine {
         this.nodes = nodes;
         this.edges = edges;
         this.dotNodes = dotNodes;
+        this.movingDots = new Map();
         this.forwTable = forwTable;
         this.onArrival = null;
 
@@ -32,6 +33,7 @@ class CompleteNodeOnEdgeEngine {
         this.speedMultiplier = 1;
         this.timeAccumulator = 0;
         this._movementInitialized = false;
+        this._isDragging = false;
 
         // Keep linksByEdges up-to-date for dynamic graph changes
         if (this.nodes && this.nodes.on) {
@@ -115,13 +117,18 @@ class CompleteNodeOnEdgeEngine {
         this.network.on('beforeDrawing', (ctx) => {
             if (this.edgesMoved) {
                 this.edgesMoved = false;
-                this.dotNodes.forEach((dotNode) => {
+                this.movingDots.forEach((dotNode) => {
                     this.fixDotOnEdge(dotNode);
                 });
             }
         });
 
+        this.network.on('afterDrawing', (ctx) => {
+            this.drawMovingDots(ctx);
+        });
+
         this.network.on('dragging', (params) => {
+            this._isDragging = true;
             if (params.edges.length <= 0) {
                 return;
             }
@@ -134,10 +141,19 @@ class CompleteNodeOnEdgeEngine {
             });
         });
 
+        this.network.on('dragEnd', (params) => {
+            this._isDragging = false;
+        });
+
         this.network.on('physicsMoving', (params) => {
             this.edgesMoved = true;
-            this.edges.forEach((edge) => {
-                edge.pointsArr = {};
+            // Only clear cache for edges that have moving dots
+            // instead of all edges - more efficient for large networks
+            this.movingDots.forEach((dotNode) => {
+                const edgeItem = this.edges.get(dotNode.edge);
+                if (edgeItem) {
+                    edgeItem.pointsArr = {};
+                }
             });
         });
 
@@ -155,39 +171,6 @@ class CompleteNodeOnEdgeEngine {
                     console.log("x: " + properties.pointer.canvas.x + " y: " + properties.pointer.canvas.y);
                 }
             }
-        });
-
-        this.dotNodes.on('update', (event, properties, time) => {});
-
-        this.dotNodes.on('add', (event, properties, time) => {
-            properties.items.forEach((nodeId) => {
-                var node = this.dotNodes.get(nodeId);
-                if (this.traces_table[nodeId] === undefined || this.traces_table[nodeId].length == 0) {
-                    this.traces_table[nodeId] = [node.source];
-                }
-                this.nodes.add(node);
-            });
-        });
-
-        this.dotNodes.on('remove', (event, properties, time) => {
-            properties.oldData.forEach((node) => {
-                this.nodes.remove(node.id);
-                if (this.ratio_inc >= 0) {
-                    var entry = this.del_log_table[time];
-                    if (entry === undefined) {
-                        this.del_log_table[time] = [[node, node.source, node.target]];
-                    } else {
-                        entry.push([node, node.source, node.target]);
-                    }
-                } else {
-                    var entry = this.add_log_table[time];
-                    if (entry === undefined) {
-                        this.add_log_table[time] = [[node, node.source, node.target]];
-                    } else {
-                        entry.push([node, node.source, node.target]);
-                    }
-                }
-            });
         });
 
         this.timer = requestAnimationFrame(this.loop);
@@ -270,30 +253,146 @@ class CompleteNodeOnEdgeEngine {
      * @param {number} time - The current time of the movement.
      */
     moveDot(current_ratio, time) {
-        if (this.dotNodes.length <= 0) {
+        if (this.movingDots.size <= 0) {
             return;
         }
-        this.dotNodes.forEach((dotNode) => {
+
+        const dotsToRemove = [];
+
+        this.movingDots.forEach((dotNode) => {
             dotNode.ratio += current_ratio;
+
             if (dotNode.ratio > 100) {
                 this.traces_table[dotNode.id].push(dotNode.target);
                 if (typeof this.onArrival === 'function') {
                     try {
                         this.onArrival({ from: dotNode.source, to: dotNode.target, dot: dotNode });
                     } catch (e) {}
-                    this.dotNodes.remove(dotNode, time);
-                    return;
                 }
-            } else if (dotNode.ratio < 0) {
+                dotsToRemove.push(dotNode);
+                return;
+            }
+
+            if (dotNode.ratio < 0) {
                 this.traces_table[dotNode.id].pop();
-                if (!this.updateDotNode(dotNode, this.traces_table[dotNode.id][this.traces_table[dotNode.id].length - 1], dotNode.source, 100 + dotNode.ratio)) {
-                    this.dotNodes.remove(dotNode, time);
+                const previousHop = this.traces_table[dotNode.id][this.traces_table[dotNode.id].length - 1];
+                if (!this.updateDotNode(dotNode, previousHop, dotNode.source, 100 + dotNode.ratio)) {
+                    dotsToRemove.push(dotNode);
                     return;
                 }
             }
+
             this.fixDotOnEdge(dotNode);
         });
-        this.network.redraw();
+
+        dotsToRemove.forEach((dotNode) => {
+            this.removeMovingDot(dotNode, time);
+        });
+
+        // Request canvas redraw without forcing full network re-render
+        // Skip during dragging as vis-network handles redraws automatically
+        if (this.movingDots.size > 0 && !this._isDragging) {
+            this.network.canvas.body.emitter.emit("_requestRedraw");
+        }
+    }
+
+    addMovingDot(dotNode, time = 0) {
+        if (!dotNode || dotNode.id === undefined) {
+            return;
+        }
+
+        if (!Array.isArray(this.traces_table[dotNode.id]) || this.traces_table[dotNode.id].length === 0) {
+            this.traces_table[dotNode.id] = [dotNode.source];
+        }
+
+        this.movingDots.set(dotNode.id, dotNode);
+
+        // Skip DataSet update - dots are drawn directly on canvas for better performance
+        // if (this.dotNodes && typeof this.dotNodes.update === 'function') {
+        //     this.dotNodes.update(dotNode);
+        // }
+    }
+
+    removeMovingDot(dotNode, time = this.currentTime) {
+        if (!dotNode || dotNode.id === undefined) {
+            return;
+        }
+
+        this.movingDots.delete(dotNode.id);
+
+        // Skip DataSet removal - dots are drawn directly on canvas for better performance
+        // if (this.dotNodes && typeof this.dotNodes.remove === 'function') {
+        //     this.dotNodes.remove(dotNode.id);
+        // }
+
+        const snapshot = {
+            ...dotNode,
+            color: dotNode.color ? { ...dotNode.color } : undefined,
+            font: dotNode.font ? { ...dotNode.font } : undefined,
+        };
+
+        if (this.ratio_inc >= 0) {
+            var removeEntry = this.del_log_table[time];
+            if (removeEntry === undefined) {
+                this.del_log_table[time] = [[snapshot, dotNode.source, dotNode.target]];
+            } else {
+                removeEntry.push([snapshot, dotNode.source, dotNode.target]);
+            }
+        } else {
+            var addEntry = this.add_log_table[time];
+            if (addEntry === undefined) {
+                this.add_log_table[time] = [[snapshot, dotNode.source, dotNode.target]];
+            } else {
+                addEntry.push([snapshot, dotNode.source, dotNode.target]);
+            }
+        }
+    }
+
+    drawMovingDots(ctx) {
+        if (!ctx || this.movingDots.size === 0) {
+            return;
+        }
+
+        this.movingDots.forEach((dotNode) => {
+            if (dotNode.x === undefined || dotNode.y === undefined) {
+                return;
+            }
+
+            const radius = (dotNode.size || 10) / 2;
+            const fillColor = dotNode.color && dotNode.color.background ? dotNode.color.background : '#97c2fc';
+            const strokeColor = dotNode.color && dotNode.color.border ? dotNode.color.border : '#2b7ce9';
+            const lineWidth = dotNode.color && dotNode.color.borderWidth ? dotNode.color.borderWidth : 2;
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.lineWidth = lineWidth;
+            ctx.strokeStyle = strokeColor;
+            ctx.fillStyle = fillColor;
+
+            if (dotNode.shape === 'box') {
+                const half = radius;
+                ctx.rect(dotNode.x - half, dotNode.y - half, half * 2, half * 2);
+                ctx.fill();
+                ctx.stroke();
+            } else {
+                ctx.arc(dotNode.x, dotNode.y, radius, 0, 2 * Math.PI, false);
+                ctx.fill();
+                ctx.stroke();
+            }
+            ctx.closePath();
+
+            if (dotNode.label) {
+                const fontSize = dotNode.font && dotNode.font.size ? dotNode.font.size : 12;
+                const fontFace = dotNode.font && dotNode.font.face ? dotNode.font.face : 'arial';
+                ctx.font = `${fontSize}px ${fontFace}`;
+                ctx.fillStyle = dotNode.font && dotNode.font.color ? dotNode.font.color : '#000';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(dotNode.label, dotNode.x, dotNode.y - fontSize);
+            }
+
+            ctx.restore();
+        });
     }
 
     /**
@@ -307,7 +406,7 @@ class CompleteNodeOnEdgeEngine {
             var path = this.getEdgeConnectingNodes(dotNode.source, dotNode.target);
             if (path[0] === undefined) {
                 // No longer a direct path; remove the moving dot gracefully
-                this.dotNodes.remove(dotNode);
+                this.removeMovingDot(dotNode);
                 return;
             }
             dotNode.edge = path[0];
@@ -325,7 +424,7 @@ class CompleteNodeOnEdgeEngine {
             // Edge was removed from DataSet; attempt to retarget
             var retryPath = this.getEdgeConnectingNodes(dotNode.source, dotNode.target);
             if (retryPath[0] === undefined) {
-                this.dotNodes.remove(dotNode);
+                this.removeMovingDot(dotNode);
                 return;
             }
             dotNode.edge = retryPath[0];
@@ -346,10 +445,8 @@ class CompleteNodeOnEdgeEngine {
             edgePoint = edge.edgeType.getPoint(current_ratio / 100);
             datasetEdge.pointsArr[current_ratio] = edgePoint;
         }
-        if (this.network.body.nodes[dotNode.id]) {
-            this.network.body.nodes[dotNode.id].x = edgePoint.x;
-            this.network.body.nodes[dotNode.id].y = edgePoint.y;
-        }
+        dotNode.x = edgePoint.x;
+        dotNode.y = edgePoint.y;
     }
 
     /**
@@ -407,15 +504,20 @@ class CompleteNodeOnEdgeEngine {
 
         var edge = this.network.body.edges[newDotNode.edge];
         var current_ratio = newDotNode.reversed ? 100 - newDotNode.ratio : newDotNode.ratio;
-        var edgePoint = this.edges.get(edge.id).pointsArr[current_ratio];
+        var datasetEdge = this.edges.get(edge.id);
+        if (!datasetEdge.pointsArr) {
+            datasetEdge.pointsArr = {};
+        }
+        var edgePoint = datasetEdge.pointsArr[current_ratio];
         if (edgePoint === undefined) {
             edgePoint = edge.edgeType.getPoint(current_ratio / 100);
-            this.edges.get(edge.id).pointsArr[current_ratio] = edgePoint;
+            datasetEdge.pointsArr[current_ratio] = edgePoint;
         }
         newDotNode.x = edgePoint.x;
         newDotNode.y = edgePoint.y;
 
-        this.dotNodes.add(newDotNode, time);
+        this.addMovingDot(newDotNode, time);
+        // Canvas will redraw on next animation frame
     }
 
     /**
