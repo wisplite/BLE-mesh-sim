@@ -388,7 +388,7 @@ class CompleteNodeOnEdgeEngine {
                 ctx.fillStyle = dotNode.font && dotNode.font.color ? dotNode.font.color : '#000';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(dotNode.label, dotNode.x, dotNode.y);
+                ctx.fillText(dotNode.label, dotNode.x, dotNode.y - fontSize);
             }
 
             ctx.restore();
