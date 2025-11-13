@@ -17,6 +17,55 @@ var markNeighborRafs = new Set();
 var nodeUpdateCache = [];
 var edgeUpdateCache = [];
 
+// Debounced batched updater for nodes/edges to reduce render thrash
+var debouncedVis = (function () {
+    var nodeMap = new Map();
+    var edgeMap = new Map();
+    var timer = null;
+    var debounceMs = 50; // flush after 50ms of inactivity
+
+    function flush() {
+        timer = null;
+        if (nodeMap.size) {
+            nodes.update(Array.from(nodeMap.values()));
+            nodeMap.clear();
+        }
+        if (edgeMap.size) {
+            edges.update(Array.from(edgeMap.values()));
+            edgeMap.clear();
+        }
+    }
+
+    function schedule() {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(flush, debounceMs);
+    }
+
+    function enqueueNode(update) {
+        // keep only the latest update per id
+        var existing = nodeMap.get(update.id) || {};
+        nodeMap.set(update.id, Object.assign({}, existing, update));
+        schedule();
+    }
+
+    function enqueueEdge(update) {
+        var existing = edgeMap.get(update.id) || {};
+        edgeMap.set(update.id, Object.assign({}, existing, update));
+        schedule();
+    }
+
+    function enqueueEdges(updates) {
+        for (var i = 0; i < updates.length; i++) {
+            var u = updates[i];
+            var existing = edgeMap.get(u.id) || {};
+            edgeMap.set(u.id, Object.assign({}, existing, u));
+        }
+        schedule();
+    }
+
+    return { enqueueNode: enqueueNode, enqueueEdge: enqueueEdge, enqueueEdges: enqueueEdges, flush: flush };
+})();
+
 function smoothColorTransition(color1, color2, min, max, current) {
     // Clamp current between min and max
     const clamped = Math.min(Math.max(current, min), max);
@@ -123,14 +172,9 @@ onEdgeEngine.setArrivalCallback(async ({ from, to, dot }) => {
     // Batch edge updates for better performance
     if (document.getElementById('showTTL').checked) {
         const edgeColor = smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1);
-        edges.update([
+        debouncedVis.enqueueEdges([
             {id: `${from}->${to}`, color: {color: edgeColor, highlight: edgeColor}},
             {id: `${to}->${from}`, color: {color: edgeColor, highlight: edgeColor}}
-        ]);
-    } else {
-        edges.update([
-            {id: `${from}->${to}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}},
-            {id: `${to}->${from}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}}
         ]);
     }
     if (nodeTable[to].packetCache.has(dot.id.split('-')[0])) {
@@ -142,9 +186,7 @@ onEdgeEngine.setArrivalCallback(async ({ from, to, dot }) => {
     var originNode = dot.id.split('-')[3];
     ttl--;
     if (document.getElementById('showTTL').checked) {
-        nodes.update({id: to, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});        
-    } else {
-        nodes.update({id: to, color: {background: '#97c2fc'}});
+        debouncedVis.enqueueNode({id: to, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});        
     }
     if (ttl > 0) {
         const neighborsSnapshot = nodeTable[to].connections.slice();
@@ -167,7 +209,15 @@ onEdgeEngine.setArrivalCallback(async ({ from, to, dot }) => {
         }
     } else {
         if (document.getElementById('showTTL').checked) {
-            markNeighborsAsFailed(to, from, packetId);
+            // Use a unique marker packet ID to bypass cache and mark unreachable nodes
+            const markerPacketId = `${packetId}`;
+            const neighborsSnapshot = nodeTable[to].connections.slice();
+            for (let neighbor of neighborsSnapshot) {
+                if (neighbor === from || neighbor === originNode) {
+                    continue;
+                }
+                quickPacketRaf(neighbor, `${markerPacketId}-${generateRealisticLabel()}-${0}-${originNode}`, from);
+            }
         }
     }
 });
@@ -283,9 +333,9 @@ function quickRoute(startNode, packetInfo, fromNode) {
 
         // Batch updates for better performance
         if (document.getElementById('showTTL').checked) {
-            nodes.update({id: nodeId, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
+            debouncedVis.enqueueNode({id: nodeId, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
             const edgeColor = smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1);
-            edges.update([
+            debouncedVis.enqueueEdges([
                 {id: `${from}->${nodeId}`, color: {color: edgeColor, highlight: edgeColor}},
                 {id: `${nodeId}->${from}`, color: {color: edgeColor, highlight: edgeColor}}
             ]);
@@ -338,7 +388,7 @@ async function routePacket(currentNode, goalNode, packetInfo, first=false) {
         return;
     }
     if (document.getElementById('showTTL').checked) {
-        nodes.update({id: currentNode, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
+        debouncedVis.enqueueNode({id: currentNode, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
     } else {
         if (first) {
             nodes.update({id: currentNode, color: {background: '#ff00d9'}});
@@ -369,7 +419,7 @@ async function routePacket(currentNode, goalNode, packetInfo, first=false) {
         // Batch edge updates for better performance
         if (document.getElementById('showTTL').checked) {
             const edgeColor = smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1);
-            edges.update([
+            debouncedVis.enqueueEdges([
                 {id: `${currentNode}->${nextNode}`, color: {color: edgeColor, highlight: edgeColor}},
                 {id: `${nextNode}->${currentNode}`, color: {color: edgeColor, highlight: edgeColor}}
             ]);
@@ -465,9 +515,9 @@ const markNeighborsAsFailed = (startNodeId, from, packetId, visited = new Set(),
 				tasks.push({ nodeId: neighbor, from: task.nodeId, neighbors: nextNeighbors, idx: 0 });
 
 				// batch visuals
-				nodeBatch.push({ id: neighbor, color: { background: 'white' } });
-				edgeBatch.push({ id: `${task.nodeId}->${neighbor}`, color: { color: 'white', highlight: '#97c2fc' } });
-				edgeBatch.push({ id: `${neighbor}->${task.nodeId}`, color: { color: 'white', highlight: '#97c2fc' } });
+				nodeBatch.push({ id: neighbor, color: { background: '#878787' } });
+				edgeBatch.push({ id: `${task.nodeId}->${neighbor}`, color: { color: '#878787', highlight: '#878787' } });
+				edgeBatch.push({ id: `${neighbor}->${task.nodeId}`, color: { color: '#878787', highlight: '#878787' } });
 
 				ops++;
 

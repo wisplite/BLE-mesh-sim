@@ -33,6 +33,7 @@ class CompleteNodeOnEdgeEngine {
         this.speedMultiplier = 1;
         this.timeAccumulator = 0;
         this._movementInitialized = false;
+        this._isDragging = false;
 
         // Keep linksByEdges up-to-date for dynamic graph changes
         if (this.nodes && this.nodes.on) {
@@ -127,6 +128,7 @@ class CompleteNodeOnEdgeEngine {
         });
 
         this.network.on('dragging', (params) => {
+            this._isDragging = true;
             if (params.edges.length <= 0) {
                 return;
             }
@@ -137,6 +139,10 @@ class CompleteNodeOnEdgeEngine {
                     edgeItem.pointsArr = {};
                 }
             });
+        });
+
+        this.network.on('dragEnd', (params) => {
+            this._isDragging = false;
         });
 
         this.network.on('physicsMoving', (params) => {
@@ -284,7 +290,8 @@ class CompleteNodeOnEdgeEngine {
         });
 
         // Request canvas redraw without forcing full network re-render
-        if (this.movingDots.size > 0) {
+        // Skip during dragging as vis-network handles redraws automatically
+        if (this.movingDots.size > 0 && !this._isDragging) {
             this.network.canvas.body.emitter.emit("_requestRedraw");
         }
     }
