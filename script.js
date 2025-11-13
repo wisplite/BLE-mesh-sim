@@ -120,12 +120,18 @@ onEdgeEngine.setArrivalCallback(async ({ from, to, dot }) => {
         await routePacket(to, dot.id.split('-')[4], dot.id);
         return;
     }
+    // Batch edge updates for better performance
     if (document.getElementById('showTTL').checked) {
-        edges.update({id: `${from}->${to}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1)}});
-        edges.update({id: `${to}->${from}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1)}});
+        const edgeColor = smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1);
+        edges.update([
+            {id: `${from}->${to}`, color: {color: edgeColor, highlight: edgeColor}},
+            {id: `${to}->${from}`, color: {color: edgeColor, highlight: edgeColor}}
+        ]);
     } else {
-        edges.update({id: `${from}->${to}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
-        edges.update({id: `${to}->${from}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
+        edges.update([
+            {id: `${from}->${to}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}},
+            {id: `${to}->${from}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}}
+        ]);
     }
     if (nodeTable[to].packetCache.has(dot.id.split('-')[0])) {
         return;
@@ -275,14 +281,20 @@ function quickRoute(startNode, packetInfo, fromNode) {
         nodeTable[nodeId].packetCache.add(packetId);
         nodeTable[nodeId].routingTable[originNode] = from;
 
+        // Batch updates for better performance
         if (document.getElementById('showTTL').checked) {
             nodes.update({id: nodeId, color: {background: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
-            edges.update({id: `${from}->${nodeId}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
-            edges.update({id: `${nodeId}->${from}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
+            const edgeColor = smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1);
+            edges.update([
+                {id: `${from}->${nodeId}`, color: {color: edgeColor, highlight: edgeColor}},
+                {id: `${nodeId}->${from}`, color: {color: edgeColor, highlight: edgeColor}}
+            ]);
         } else {
             nodes.update({id: nodeId, color: {background: '#97c2fc'}});
-            edges.update({id: `${from}->${nodeId}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
-            edges.update({id: `${nodeId}->${from}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}});
+            edges.update([
+                {id: `${from}->${nodeId}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}},
+                {id: `${nodeId}->${from}`, color: {color: '#2b7ce9', highlight: '#2b7ce9'}}
+            ]);
         }
 
         const neighborsSnapshot = (nodeTable[nodeId]?.connections?.slice()) || [];
@@ -354,12 +366,18 @@ async function routePacket(currentNode, goalNode, packetInfo, first=false) {
             font: {color: document.getElementById('darkMode').checked ? '#e0e0e0' : '#000'}
         };
         onEdgeEngine.createDotNode(movingNode, currentNode, nextNode);
+        // Batch edge updates for better performance
         if (document.getElementById('showTTL').checked) {
-            edges.update({id: `${currentNode}->${nextNode}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
-            edges.update({id: `${nextNode}->${currentNode}`, color: {color: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1), highlight: smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl)}});
+            const edgeColor = smoothColorTransition('#eb4034', '#40eb34', 0, TTL, ttl+1);
+            edges.update([
+                {id: `${currentNode}->${nextNode}`, color: {color: edgeColor, highlight: edgeColor}},
+                {id: `${nextNode}->${currentNode}`, color: {color: edgeColor, highlight: edgeColor}}
+            ]);
         } else {
-            edges.update({id: `${currentNode}->${nextNode}`, color: {color: 'yellow', highlight: 'yellow'}});
-            edges.update({id: `${nextNode}->${currentNode}`, color: {color: 'yellow', highlight: 'yellow'}});
+            edges.update([
+                {id: `${currentNode}->${nextNode}`, color: {color: 'yellow', highlight: 'yellow'}},
+                {id: `${nextNode}->${currentNode}`, color: {color: 'yellow', highlight: 'yellow'}}
+            ]);
         }
     } else {
         consoleLog(`No route found from ${currentNode} to ${goalNode} via ${nextNode}. Dropping packet.`);
